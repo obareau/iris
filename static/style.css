@@ -43,6 +43,19 @@ body {
 .brand { font-size: 17px; font-weight: 600; letter-spacing: 0.3px; }
 .brand span { color: var(--text); }
 
+.tabs { display: flex; gap: 4px; }
+.tab-btn {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 7px 14px;
+  font-size: 13px;
+  color: var(--muted);
+  cursor: pointer;
+}
+.tab-btn:hover { background: var(--bg-3); color: var(--text); }
+.tab-btn.active { background: var(--accent); color: #fff; }
+
 .global-progress { flex: 1; max-width: 640px; }
 .gp-head {
   display: flex;

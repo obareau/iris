@@ -12,6 +12,10 @@
   <!-- Barre supérieure + progression globale -->
   <header class="topbar">
     <div class="brand">🌈 <span>Iris</span></div>
+    <nav class="tabs">
+      <button type="button" class="tab-btn active" data-tab="tri">Tri</button>
+      <button type="button" class="tab-btn" data-tab="galerie">Galerie</button>
+    </nav>
     <div class="global-progress" id="globalProgress">
       <div class="gp-head">
         <span id="gpLabel">Prêt</span>
@@ -21,7 +25,7 @@
     </div>
   </header>
 
-  <div class="workspace">
+  <div class="workspace" id="view-tri">
 
     <!-- Panneau gauche : contrôles -->
     <aside class="panel panel-left">
@@ -143,6 +147,63 @@
     </aside>
 
   </div>
+
+  <!-- Vue Galerie : parcourt un dossier déjà classé (_classees), recherche/
+       filtre via les sidecars, publication Recta directement depuis Iris -->
+  <div class="workspace" id="view-galerie" hidden>
+    <aside class="panel panel-left">
+      <section class="pblock">
+        <h3>Dossier</h3>
+        <label class="field">Photos classées
+          <div class="path-picker">
+            <input id="galFolder" type="text" placeholder="/home/olivier/Photos/_classees" />
+            <button type="button" class="btn ghost" data-browse-target="galFolder">…</button>
+          </div>
+        </label>
+        <button id="galLoadBtn" class="btn primary full">Charger</button>
+      </section>
+      <section class="pblock">
+        <h3>Filtrer</h3>
+        <label class="field">Catégorie
+          <select id="galFilterCat" class="select-sm" style="width:100%">
+            <option value="">Toutes catégories</option>
+          </select>
+        </label>
+        <label class="field">Recherche (détails, attributs, nom)
+          <input id="galSearch" type="text" placeholder="ex: rouge, moto, tatouage…" />
+        </label>
+        <small id="galCounts"></small>
+      </section>
+    </aside>
+
+    <main class="panel panel-center">
+      <div id="galGrid" class="grid"></div>
+      <div id="galEmpty" class="grid-empty">Choisis un dossier déjà classé puis clique Charger.</div>
+    </main>
+
+    <aside class="panel panel-right" id="galInspector">
+      <div class="insp-empty" id="galInspEmpty">Sélectionne une image pour la publier.</div>
+      <div class="insp-body" id="galInspBody" hidden>
+        <div class="insp-preview"><img id="galInspImg" alt="" /></div>
+        <div class="insp-name" id="galInspName"></div>
+        <div class="insp-rows">
+          <div class="insp-row"><span class="ir-key">Catégorie</span><span class="ir-val" id="galInspCat"></span></div>
+        </div>
+        <div class="insp-section">
+          <h4>Détails</h4>
+          <div class="insp-details" id="galInspDetails">—</div>
+        </div>
+        <div class="insp-section" id="galInspAttrSection" hidden>
+          <h4>Attributs</h4>
+          <div class="kv-list" id="galInspAttrs"></div>
+        </div>
+        <div class="insp-section">
+          <div class="status-line" id="galPostedStatus"></div>
+          <button id="galRenegatBtn" class="btn primary full">Publier en Renegat</button>
+        </div>
+      </div>
+    </aside>
+  </div>
 </div>
 
 <!-- Modale de navigation dossiers -->
@@ -160,6 +221,28 @@
     <div class="modal-actions">
       <button type="button" id="browseUp" class="btn ghost">⬆ Parent</button>
       <button type="button" id="browseSelect" class="btn primary">Choisir ce dossier</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modale aperçu / publication Renegat -->
+<div id="renegatModal" class="modal" hidden>
+  <div class="modal-box">
+    <div class="modal-header">
+      <h2>Publier en Renegat</h2>
+      <button type="button" id="renegatClose" class="btn ghost">✕</button>
+    </div>
+    <div id="renegatBody">
+      <div class="insp-preview"><img id="renegatPreviewImg" alt="" /></div>
+      <div class="insp-section">
+        <h4>Légende</h4>
+        <div class="insp-details" id="renegatCaption">—</div>
+      </div>
+      <div class="status-line" id="renegatStatus"></div>
+    </div>
+    <div class="modal-actions">
+      <button type="button" id="renegatCancel" class="btn ghost">Annuler</button>
+      <button type="button" id="renegatConfirm" class="btn primary">Confirmer la publication</button>
     </div>
   </div>
 </div>

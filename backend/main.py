@@ -1,4 +1,6 @@
 import io
+import json
+import subprocess
 import sys
 import threading
 import time
@@ -13,11 +15,14 @@ from PIL import Image
 sys.path.insert(0, str(Path(__file__).parent))
 import classifier
 import details as details_module
+import gallery as gallery_module
 import organizer
 import prefilter
 import scanner
 
 app = FastAPI(title="Argus")
+
+RECTA_DIR = Path.home() / "DEV" / "Recta"
 
 STATIC_DIR = Path(__file__).parent.parent / "static"
 
@@ -61,6 +66,17 @@ class ApplyRequest(BaseModel):
 
 class ExtractDetailsRequest(BaseModel):
     paths: list[str] | None = None  # if None, extract for all analyzed results missing details
+
+
+class RenegatPreviewRequest(BaseModel):
+    image_path: str
+    lang: str | None = None
+
+
+class RenegatPublishRequest(BaseModel):
+    image_path: str
+    numero: int
+    lang: str
 
 
 @app.get("/")
@@ -335,6 +351,49 @@ def apply(req: ApplyRequest):
 @app.post("/api/undo")
 def undo():
     return organizer.undo_last()
+
+
+@app.get("/api/gallery")
+def get_gallery(folder: str):
+    return {"items": gallery_module.list_gallery(folder)}
+
+
+def _run_renegat_cli(args: list[str]) -> dict:
+    """Sous-processus vers ~/DEV/Recta (tsx, pas de build Electron nécessaire
+    pour renegat-cli.ts) — pont entre la galerie Iris et la publication Recta."""
+    try:
+        proc = subprocess.run(
+            ["npx", "tsx", "src/renegat-cli.ts", *args],
+            cwd=RECTA_DIR, capture_output=True, text=True, timeout=60,
+        )
+    except subprocess.TimeoutExpired:
+        raise HTTPException(504, "Recta n'a pas répondu à temps")
+    except FileNotFoundError:
+        raise HTTPException(500, "npx introuvable — Recta est-il installé ?")
+    lines = proc.stdout.strip().splitlines()
+    if not lines:
+        raise HTTPException(500, f"Recta : aucune sortie (code {proc.returncode}) — {proc.stderr[-500:]}")
+    try:
+        data = json.loads(lines[-1])
+    except Exception:
+        raise HTTPException(500, f"Recta : sortie illisible — {lines[-1][:300]}")
+    if "error" in data:
+        raise HTTPException(400, data["error"])
+    return data
+
+
+@app.post("/api/recta/renegat/preview")
+def renegat_preview(req: RenegatPreviewRequest):
+    args = [f"--image={req.image_path}", "--dry"]
+    if req.lang:
+        args.append(f"--lang={req.lang}")
+    return _run_renegat_cli(args)
+
+
+@app.post("/api/recta/renegat/publish")
+def renegat_publish(req: RenegatPublishRequest):
+    args = [f"--image={req.image_path}", f"--numero={req.numero}", f"--lang={req.lang}"]
+    return _run_renegat_cli(args)
 
 
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")

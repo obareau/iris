@@ -533,3 +533,241 @@ $("browseSelect").addEventListener("click", () => {
   browseModal.hidden = true;
 });
 $("browseClose").addEventListener("click", () => { browseModal.hidden = true; });
+
+// ---------- Onglets Tri / Galerie ----------
+const viewTri = $("view-tri"), viewGalerie = $("view-galerie");
+viewGalerie.style.display = "none"; // état initial : onglet Tri actif (le hidden HTML seul ne suffit pas, cf. commentaire ci-dessous)
+document.querySelectorAll(".tab-btn").forEach(btn => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".tab-btn").forEach(b => b.classList.toggle("active", b === btn));
+    const isGalerie = btn.dataset.tab === "galerie";
+    // `.workspace{display:grid}` a la même spécificité que `[hidden]` de la
+    // feuille UA et gagne (règle auteur après règle UA) — piloter `display`
+    // directement plutôt que l'attribut hidden qui n'aurait aucun effet ici.
+    viewTri.style.display = isGalerie ? "none" : "grid";
+    viewGalerie.style.display = isGalerie ? "grid" : "none";
+  });
+});
+
+// ---------- Galerie ----------
+const galFolderEl = $("galFolder");
+const galLoadBtn = $("galLoadBtn");
+const galFilterCatEl = $("galFilterCat");
+const galSearchEl = $("galSearch");
+const galCountsEl = $("galCounts");
+const galGridEl = $("galGrid");
+const galEmptyEl = $("galEmpty");
+const galInspEmpty = $("galInspEmpty"), galInspBody = $("galInspBody");
+const galInspImg = $("galInspImg"), galInspName = $("galInspName"), galInspCat = $("galInspCat");
+const galInspDetails = $("galInspDetails");
+const galInspAttrSection = $("galInspAttrSection"), galInspAttrs = $("galInspAttrs");
+const galPostedStatus = $("galPostedStatus");
+const galRenegatBtn = $("galRenegatBtn");
+
+let galItems = [];          // liste brute renvoyée par /api/gallery
+let galItemsByPath = new Map();
+let galCardByPath = new Map();
+let galSelectedPath = null;
+let galActiveCat = "";
+
+// La galerie part sur le dossier destination du tri si rien n'est encore saisi.
+galFolderEl.addEventListener("focus", () => {
+  if (!galFolderEl.value && destEl.value) galFolderEl.value = destEl.value;
+}, { once: true });
+
+function galMatchesSearch(item, needle) {
+  if (!needle) return true;
+  const haystack = [
+    item.path.split("/").pop(),
+    item.category_label,
+    item.details,
+    ...(item.attributes || []).map(a => `${a.label} ${a.value}`),
+  ].filter(Boolean).join(" ").toLowerCase();
+  return haystack.includes(needle);
+}
+
+function galApplyFilters() {
+  const needle = galSearchEl.value.trim().toLowerCase();
+  let shown = 0;
+  for (const item of galItems) {
+    const card = galCardByPath.get(item.path);
+    const catOk = !galActiveCat || item.category_label === galActiveCat;
+    const searchOk = galMatchesSearch(item, needle);
+    const show = catOk && searchOk;
+    card.style.display = show ? "" : "none";
+    if (show) shown++;
+  }
+  galCountsEl.textContent = `${shown} / ${galItems.length} images`;
+}
+
+function galMakeCard(item) {
+  const card = document.createElement("div");
+  card.className = "thumb";
+  card.dataset.path = item.path;
+
+  const imgWrap = document.createElement("div");
+  imgWrap.className = "thumb-img";
+  const img = document.createElement("img");
+  img.loading = "lazy";
+  img.src = "/api/thumbnail?path=" + encodeURIComponent(item.path);
+  imgWrap.appendChild(img);
+
+  const foot = document.createElement("div");
+  foot.className = "thumb-foot";
+  const dot = document.createElement("span");
+  dot.className = "status-dot" + (item.renegat_posted ? " detailed" : " classified");
+  const cat = document.createElement("span");
+  cat.className = "thumb-cat";
+  cat.textContent = item.renegat_posted
+    ? `${item.category_label} · 📡 #${item.renegat_posted.numero}`
+    : item.category_label;
+  foot.appendChild(dot);
+  foot.appendChild(cat);
+
+  card.appendChild(imgWrap);
+  card.appendChild(foot);
+  card.addEventListener("click", () => galSelectImage(item.path));
+  return card;
+}
+
+function galRenderInspector(item) {
+  galInspEmpty.hidden = true;
+  galInspBody.hidden = false;
+  galInspImg.src = "/api/thumbnail?path=" + encodeURIComponent(item.path);
+  galInspName.textContent = item.path.split("/").pop();
+  galInspCat.textContent = item.category_label || "—";
+  galInspDetails.textContent = item.details || "—";
+
+  if (item.attributes && item.attributes.length) {
+    galInspAttrs.innerHTML = "";
+    for (const a of item.attributes) {
+      const row = document.createElement("div");
+      row.className = "kv-row";
+      row.innerHTML = `<span class="kv-key">${a.label}</span><span class="kv-val">${a.value}</span>`;
+      galInspAttrs.appendChild(row);
+    }
+    galInspAttrSection.hidden = false;
+  } else {
+    galInspAttrSection.hidden = true;
+  }
+
+  if (item.renegat_posted) {
+    const d = new Date(item.renegat_posted.timestamp);
+    galPostedStatus.textContent = `📡 Déjà publié — avis #${item.renegat_posted.numero} le ${d.toLocaleString()}`;
+    galRenegatBtn.textContent = "Republier quand même";
+  } else {
+    galPostedStatus.textContent = "";
+    galRenegatBtn.textContent = "Publier en Renegat";
+  }
+}
+
+function galSelectImage(path) {
+  galSelectedPath = path;
+  for (const [p, card] of galCardByPath) card.classList.toggle("selected", p === path);
+  const item = galItemsByPath.get(path);
+  if (item) galRenderInspector(item);
+}
+
+async function galLoad() {
+  const folder = galFolderEl.value.trim();
+  if (!folder) { alert("Indique un dossier déjà classé (ex: .../_classees)."); return; }
+  galLoadBtn.disabled = true;
+  galCountsEl.textContent = "Chargement…";
+  try {
+    const res = await fetch("/api/gallery?folder=" + encodeURIComponent(folder));
+    if (!res.ok) { galCountsEl.textContent = "Erreur: " + (await res.text()); return; }
+    const data = await res.json();
+    galItems = data.items;
+    galItemsByPath = new Map(galItems.map(i => [i.path, i]));
+    galCardByPath = new Map();
+    galGridEl.innerHTML = "";
+    galSelectedPath = null;
+    galInspBody.hidden = true; galInspEmpty.hidden = false;
+
+    const cats = [...new Set(galItems.map(i => i.category_label).filter(Boolean))].sort();
+    galFilterCatEl.innerHTML = '<option value="">Toutes catégories</option>'
+      + cats.map(c => `<option value="${c}">${c}</option>`).join("");
+    galActiveCat = "";
+
+    for (const item of galItems) {
+      const card = galMakeCard(item);
+      galCardByPath.set(item.path, card);
+      galGridEl.appendChild(card);
+    }
+    galEmptyEl.style.display = galItems.length ? "none" : "";
+    galApplyFilters();
+  } finally {
+    galLoadBtn.disabled = false;
+  }
+}
+galLoadBtn.addEventListener("click", galLoad);
+galFilterCatEl.addEventListener("change", () => { galActiveCat = galFilterCatEl.value; galApplyFilters(); });
+galSearchEl.addEventListener("input", () => galApplyFilters());
+
+// ---------- Publication Renegat (aperçu → confirmation) ----------
+const renegatModal = $("renegatModal");
+const renegatPreviewImg = $("renegatPreviewImg");
+const renegatCaption = $("renegatCaption");
+const renegatStatus = $("renegatStatus");
+const renegatConfirm = $("renegatConfirm");
+let renegatPreviewData = null; // {numero, lang, caption, imagePath}
+
+function renegatCloseModal() {
+  renegatModal.hidden = true;
+  renegatPreviewData = null;
+  renegatStatus.textContent = "";
+  renegatConfirm.disabled = false;
+  renegatConfirm.textContent = "Confirmer la publication";
+}
+$("renegatClose").addEventListener("click", renegatCloseModal);
+$("renegatCancel").addEventListener("click", renegatCloseModal);
+
+galRenegatBtn.addEventListener("click", async () => {
+  if (!galSelectedPath) return;
+  renegatModal.hidden = false;
+  renegatPreviewImg.src = "/api/thumbnail?path=" + encodeURIComponent(galSelectedPath);
+  renegatCaption.textContent = "Génération de l'aperçu…";
+  renegatStatus.textContent = "";
+  renegatConfirm.disabled = true;
+  try {
+    const res = await fetch("/api/recta/renegat/preview", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ image_path: galSelectedPath }),
+    });
+    const data = await res.json();
+    if (!res.ok) { renegatCaption.textContent = "Erreur : " + (data.detail || res.statusText); return; }
+    renegatPreviewData = data;
+    renegatCaption.textContent = `#${data.numero} (${data.lang})\n\n${data.caption}`;
+    renegatConfirm.disabled = false;
+  } catch (e) {
+    renegatCaption.textContent = "Erreur : " + e.message;
+  }
+});
+
+renegatConfirm.addEventListener("click", async () => {
+  if (!renegatPreviewData) return;
+  renegatConfirm.disabled = true;
+  renegatConfirm.textContent = "Publication…";
+  renegatStatus.textContent = "Publication en cours sur Facebook / Bluesky / Mastodon…";
+  try {
+    const res = await fetch("/api/recta/renegat/publish", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        image_path: renegatPreviewData.imagePath,
+        numero: renegatPreviewData.numero,
+        lang: renegatPreviewData.lang,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) { renegatStatus.textContent = "Échec : " + (data.detail || res.statusText); renegatConfirm.disabled = false; renegatConfirm.textContent = "Réessayer"; return; }
+    const summary = (data.results || []).map(r => `${r.ok ? "✓" : "✗"} ${r.network}${r.error ? " (" + r.error + ")" : ""}`).join(" · ");
+    renegatStatus.textContent = data.posted ? `Publié — ${summary}` : `Aucun réseau n'a accepté — ${summary}`;
+    renegatConfirm.textContent = "Publié";
+    // Recharger la galerie pour faire apparaître le marqueur "déjà publié".
+    if (data.posted) galLoad();
+  } catch (e) {
+    renegatStatus.textContent = "Erreur : " + e.message;
+    renegatConfirm.disabled = false;
+    renegatConfirm.textContent = "Réessayer";
+  }
+});
