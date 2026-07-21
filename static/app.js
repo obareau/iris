@@ -635,9 +635,10 @@ function galMakeCard(item) {
   dot.className = "status-dot" + (item.renegat_posted ? " detailed" : " classified");
   const cat = document.createElement("span");
   cat.className = "thumb-cat";
-  cat.textContent = item.renegat_posted
+  cat.textContent = (item.renegat_posted
     ? `${item.category_label} · 📡 #${item.renegat_posted.numero}`
-    : item.category_label;
+    : item.category_label)
+    + (item.score != null ? ` · ${Math.round(item.score * 100)}%` : "");
   foot.appendChild(dot);
   foot.appendChild(cat);
 
@@ -751,6 +752,45 @@ async function galLoad() {
 galLoadBtn.addEventListener("click", galLoad);
 galFilterCatEl.addEventListener("change", () => { galActiveCat = galFilterCatEl.value; galApplyFilters(); });
 galSearchEl.addEventListener("input", () => galApplyFilters());
+
+// ---------- Recherche sémantique (CLIP texte→image, via /api/gallery/search) ----------
+// Distincte du filtre texte ci-dessus (sous-chaîne locale, instantanée) :
+// celle-ci interroge Iris, réordonne la grille par score et l'affiche.
+const galSemanticBtn = $("galSemanticBtn");
+function galRenderSemanticResults(items, query) {
+  galGridEl.innerHTML = "";
+  galCardByPath = new Map();
+  for (const item of items) {
+    galItemsByPath.set(item.path, item); // complète l'entrée avec le score
+    const card = galMakeCard(item);
+    galCardByPath.set(item.path, card);
+    galGridEl.appendChild(card);
+  }
+  galEmptyEl.style.display = items.length ? "none" : "";
+  galCountsEl.textContent = items.length
+    ? `${items.length} résultats pour « ${query} » (recherche IA — % = similarité)`
+    : `Aucun résultat pour « ${query} »`;
+}
+
+galSemanticBtn.addEventListener("click", async () => {
+  const folder = galFolderEl.value.trim();
+  const query = galSearchEl.value.trim();
+  if (!folder) { alert("Charge d'abord un dossier."); return; }
+  if (!query) { alert("Tape une description dans le champ recherche."); return; }
+  galSemanticBtn.disabled = true;
+  galCountsEl.textContent = "Recherche sémantique en cours…";
+  try {
+    const res = await fetch("/api/gallery/search", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ folder, query, category: galActiveCat || null, top_k: 30 }),
+    });
+    if (!res.ok) { galCountsEl.textContent = "Erreur : " + (await res.text()); return; }
+    const data = await res.json();
+    galRenderSemanticResults(data.items, query);
+  } finally {
+    galSemanticBtn.disabled = false;
+  }
+});
 
 // ---------- Rétro-remplissage des détails (photos triées avant les sidecars) ----------
 function galVisiblePaths() {
