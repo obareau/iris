@@ -14,6 +14,7 @@ from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).parent))
 import classifier
+import dedupe as dedupe_module
 import details as details_module
 import gallery as gallery_module
 import organizer
@@ -36,6 +37,9 @@ STATE = {
     "details_job_lock": threading.Lock(),
     "refine_job": {"status": "idle", "done": 0, "total": 0, "current": None},
     "refine_job_lock": threading.Lock(),
+    "dedupe_job": {"status": "idle", "done": 0, "total": 0, "phase": None},
+    "dedupe_job_lock": threading.Lock(),
+    "dedupe_groups": [],
 }
 
 
@@ -77,6 +81,15 @@ class RenegatPublishRequest(BaseModel):
     image_path: str
     numero: int
     lang: str
+
+
+class DedupeRequest(BaseModel):
+    folder: str
+    threshold: float = 0.92
+
+
+class DiscardRequest(BaseModel):
+    path: str
 
 
 @app.get("/")
@@ -394,6 +407,53 @@ def renegat_preview(req: RenegatPreviewRequest):
 def renegat_publish(req: RenegatPublishRequest):
     args = [f"--image={req.image_path}", f"--numero={req.numero}", f"--lang={req.lang}"]
     return _run_renegat_cli(args)
+
+
+def _run_dedupe(folder: str, threshold: float):
+    STATE["dedupe_job"] = {"status": "running", "done": 0, "total": 0, "phase": "scan"}
+    try:
+        groups = dedupe_module.find_duplicate_groups(folder, threshold, progress=STATE["dedupe_job"])
+        STATE["dedupe_groups"] = groups
+        STATE["dedupe_job"]["status"] = "done"
+    except Exception as e:
+        STATE["dedupe_job"] = {"status": "error", "done": 0, "total": 0, "phase": str(e)}
+
+
+@app.post("/api/dedupe")
+def dedupe(req: DedupeRequest):
+    with STATE["dedupe_job_lock"]:
+        if STATE["dedupe_job"]["status"] == "running":
+            raise HTTPException(409, "Une détection de doublons est déjà en cours")
+        STATE["dedupe_job"] = {"status": "running", "done": 0, "total": 0, "phase": "scan"}
+
+    thread = threading.Thread(target=_run_dedupe, args=(req.folder, req.threshold), daemon=True)
+    thread.start()
+    return {"started": True}
+
+
+@app.get("/api/dedupe-progress")
+def dedupe_progress():
+    return STATE["dedupe_job"]
+
+
+@app.get("/api/dedupe-results")
+def dedupe_results():
+    return {"groups": STATE["dedupe_groups"]}
+
+
+@app.post("/api/dedupe/discard")
+def dedupe_discard(req: DiscardRequest):
+    try:
+        trashed_to = dedupe_module.discard(req.path)
+    except FileNotFoundError as e:
+        raise HTTPException(404, str(e))
+    # Retire l'image écartée de tous les groupes en mémoire (et les groupes
+    # redevenus des singletons, qui n'ont plus rien à comparer).
+    for g in STATE["dedupe_groups"]:
+        if req.path in g["images"]:
+            g["images"].remove(req.path)
+    STATE["dedupe_groups"] = [g for g in STATE["dedupe_groups"] if len(g["images"]) > 1]
+    return {"trashed_to": trashed_to}
 
 
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")

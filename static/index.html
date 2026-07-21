@@ -15,6 +15,7 @@
     <nav class="tabs">
       <button type="button" class="tab-btn active" data-tab="tri">Tri</button>
       <button type="button" class="tab-btn" data-tab="galerie">Galerie</button>
+      <button type="button" class="tab-btn" data-tab="doublons">Doublons</button>
     </nav>
     <div class="global-progress" id="globalProgress">
       <div class="gp-head">
@@ -203,6 +204,39 @@
         </div>
       </div>
     </aside>
+  </div>
+
+  <!-- Vue Doublons : regroupe les images similaires via les embeddings CLIP
+       déjà calculés en passe 1 (cache réutilisé, pas de recalcul) -->
+  <div class="workspace" id="view-doublons" hidden>
+    <aside class="panel panel-left">
+      <section class="pblock">
+        <h3>Dossier</h3>
+        <label class="field">Photos classées
+          <div class="path-picker">
+            <input id="dedupeFolder" type="text" placeholder="/home/olivier/Photos/_classees" />
+            <button type="button" class="btn ghost" data-browse-target="dedupeFolder">…</button>
+          </div>
+        </label>
+        <label class="field">Seuil de similarité
+          <input id="dedupeThreshold" type="range" min="80" max="99" value="92" />
+          <small id="dedupeThresholdVal">0.92</small>
+        </label>
+        <button id="dedupeBtn" class="btn primary full">Détecter les doublons</button>
+        <div class="minibar" id="dedupeBar">
+          <div class="minibar-head"><span id="dedupePhase">Analyse</span><span id="dedupeCount">—</span></div>
+          <div class="mb-track"><div class="mb-fill" id="dedupeFill"></div></div>
+        </div>
+      </section>
+      <section class="pblock">
+        <small id="dedupeSummary"></small>
+      </section>
+    </aside>
+
+    <main class="panel panel-center">
+      <div id="dedupeGroups" class="dedupe-groups"></div>
+      <div id="dedupeEmpty" class="grid-empty">Choisis un dossier puis lance la détection.</div>
+    </main>
   </div>
 </div>
 

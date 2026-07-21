@@ -279,6 +279,56 @@ textarea { resize: vertical; }
   100% { left: 100%; }
 }
 
+/* ---------- Vue Doublons ---------- */
+.dedupe-groups {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.dedupe-group {
+  background: var(--bg-1);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+}
+.dedupe-group-head {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 10px;
+}
+.dedupe-thumbs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.dedupe-thumb {
+  width: 140px;
+  background: var(--bg-2);
+  border: 1px solid var(--border-soft);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.dedupe-thumb-img {
+  aspect-ratio: 1 / 1;
+  background: #e4e6ea;
+  overflow: hidden;
+}
+.dedupe-thumb-img img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.dedupe-thumb-name {
+  font-size: 10px;
+  color: var(--faint);
+  padding: 4px 6px 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dedupe-thumb .btn { width: calc(100% - 12px); margin: 6px; padding: 5px; font-size: 12px; }
+
 /* ---------- Panneau droit : inspecteur ---------- */
 .insp-empty {
   padding: 24px 18px;

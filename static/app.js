@@ -535,17 +535,18 @@ $("browseSelect").addEventListener("click", () => {
 $("browseClose").addEventListener("click", () => { browseModal.hidden = true; });
 
 // ---------- Onglets Tri / Galerie ----------
-const viewTri = $("view-tri"), viewGalerie = $("view-galerie");
-viewGalerie.style.display = "none"; // état initial : onglet Tri actif (le hidden HTML seul ne suffit pas, cf. commentaire ci-dessous)
+const views = { tri: $("view-tri"), galerie: $("view-galerie"), doublons: $("view-doublons") };
+views.galerie.style.display = "none"; // état initial : onglet Tri actif (le hidden HTML seul ne suffit pas, cf. commentaire ci-dessous)
+views.doublons.style.display = "none";
 document.querySelectorAll(".tab-btn").forEach(btn => {
   btn.addEventListener("click", () => {
     document.querySelectorAll(".tab-btn").forEach(b => b.classList.toggle("active", b === btn));
-    const isGalerie = btn.dataset.tab === "galerie";
     // `.workspace{display:grid}` a la même spécificité que `[hidden]` de la
     // feuille UA et gagne (règle auteur après règle UA) — piloter `display`
     // directement plutôt que l'attribut hidden qui n'aurait aucun effet ici.
-    viewTri.style.display = isGalerie ? "none" : "grid";
-    viewGalerie.style.display = isGalerie ? "grid" : "none";
+    for (const [name, el] of Object.entries(views)) {
+      el.style.display = name === btn.dataset.tab ? "grid" : "none";
+    }
   });
 });
 
@@ -770,4 +771,139 @@ renegatConfirm.addEventListener("click", async () => {
     renegatConfirm.disabled = false;
     renegatConfirm.textContent = "Réessayer";
   }
+});
+
+// ---------- Doublons / images similaires ----------
+const dedupeFolderEl = $("dedupeFolder");
+const dedupeThresholdEl = $("dedupeThreshold");
+const dedupeThresholdVal = $("dedupeThresholdVal");
+const dedupeBtn = $("dedupeBtn");
+const dedupeBar = $("dedupeBar"), dedupePhase = $("dedupePhase"), dedupeCount = $("dedupeCount"), dedupeFill = $("dedupeFill");
+const dedupeSummary = $("dedupeSummary");
+const dedupeGroupsEl = $("dedupeGroups");
+const dedupeEmptyEl = $("dedupeEmpty");
+
+dedupeThresholdEl.addEventListener("input", () => {
+  dedupeThresholdVal.textContent = (dedupeThresholdEl.value / 100).toFixed(2);
+});
+
+dedupeFolderEl.addEventListener("focus", () => {
+  if (!dedupeFolderEl.value && (galFolderEl.value || destEl.value)) {
+    dedupeFolderEl.value = galFolderEl.value || destEl.value;
+  }
+}, { once: true });
+
+function dedupeMakeThumb(path) {
+  const thumb = document.createElement("div");
+  thumb.className = "dedupe-thumb";
+  thumb.dataset.path = path;
+
+  const imgWrap = document.createElement("div");
+  imgWrap.className = "dedupe-thumb-img";
+  const img = document.createElement("img");
+  img.loading = "lazy";
+  img.src = "/api/thumbnail?path=" + encodeURIComponent(path);
+  imgWrap.appendChild(img);
+
+  const name = document.createElement("div");
+  name.className = "dedupe-thumb-name";
+  name.textContent = path.split("/").pop();
+
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "btn ghost";
+  btn.textContent = "Écarter";
+  btn.addEventListener("click", async () => {
+    if (!confirm("Déplacer cette photo vers la corbeille (~/.iris-trash) ?")) return;
+    btn.disabled = true;
+    btn.textContent = "…";
+    try {
+      const res = await fetch("/api/dedupe/discard", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path }),
+      });
+      if (!res.ok) { btn.disabled = false; btn.textContent = "Écarter (erreur)"; return; }
+      const group = thumb.closest(".dedupe-group");
+      thumb.remove();
+      const remaining = group.querySelectorAll(".dedupe-thumb").length;
+      if (remaining <= 1) group.remove();
+      dedupeUpdateSummary();
+    } catch (e) {
+      btn.disabled = false;
+      btn.textContent = "Écarter (erreur)";
+    }
+  });
+
+  thumb.appendChild(imgWrap);
+  thumb.appendChild(name);
+  thumb.appendChild(btn);
+  return thumb;
+}
+
+function dedupeUpdateSummary() {
+  const groups = dedupeGroupsEl.querySelectorAll(".dedupe-group").length;
+  const images = dedupeGroupsEl.querySelectorAll(".dedupe-thumb").length;
+  dedupeSummary.textContent = groups ? `${groups} groupes · ${images} photos concernées` : "Aucun groupe restant.";
+  dedupeEmptyEl.style.display = groups ? "none" : "";
+}
+
+function dedupeRenderGroups(groups) {
+  dedupeGroupsEl.innerHTML = "";
+  for (const g of groups) {
+    const card = document.createElement("div");
+    card.className = "dedupe-group";
+    const head = document.createElement("div");
+    head.className = "dedupe-group-head";
+    head.innerHTML = `<span>${g.images.length} photos</span><span>similarité max ${Math.round(g.max_similarity * 100)}%</span>`;
+    const thumbs = document.createElement("div");
+    thumbs.className = "dedupe-thumbs";
+    for (const path of g.images) thumbs.appendChild(dedupeMakeThumb(path));
+    card.appendChild(head);
+    card.appendChild(thumbs);
+    dedupeGroupsEl.appendChild(card);
+  }
+  dedupeUpdateSummary();
+}
+
+async function dedupePoll() {
+  const pRes = await fetch("/api/dedupe-progress").then(r => r.json());
+  const phase = pRes.phase === "similarity" ? "Comparaison" : (pRes.phase === "scan" ? "Analyse" : "Embeddings");
+  dedupePhase.textContent = phase;
+  dedupeCount.textContent = pRes.total ? `${pRes.done} / ${pRes.total}` : "—";
+  setBar(dedupeFill, pRes.done, pRes.total);
+
+  if (pRes.status === "running") {
+    setTimeout(dedupePoll, 600);
+    return;
+  }
+  dedupeBtn.disabled = false;
+  if (pRes.status === "error") {
+    dedupeSummary.textContent = "Erreur : " + pRes.phase;
+    return;
+  }
+  dedupeFill.classList.add("done");
+  const data = await fetch("/api/dedupe-results").then(r => r.json());
+  dedupeRenderGroups(data.groups);
+}
+
+dedupeBtn.addEventListener("click", async () => {
+  const folder = dedupeFolderEl.value.trim();
+  if (!folder) { alert("Indique un dossier déjà classé."); return; }
+  dedupeBtn.disabled = true;
+  dedupeFill.classList.remove("done");
+  setBar(dedupeFill, 0, 1);
+  dedupeGroupsEl.innerHTML = "";
+  dedupeEmptyEl.style.display = "none";
+  dedupeSummary.textContent = "";
+
+  const res = await fetch("/api/dedupe", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ folder, threshold: dedupeThresholdEl.value / 100 }),
+  });
+  if (!res.ok) {
+    dedupeSummary.textContent = "Erreur : " + (await res.text());
+    dedupeBtn.disabled = false;
+    return;
+  }
+  dedupePoll();
 });
