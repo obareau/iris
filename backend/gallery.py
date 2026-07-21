@@ -1,6 +1,8 @@
 import json
 from pathlib import Path
 
+import numpy as np
+
 import classifier
 import details as details_module
 
@@ -58,6 +60,64 @@ def list_gallery(folder: str) -> list[dict]:
 
 def _write_sidecar(image_path: Path, data: dict) -> None:
     image_path.with_suffix(".json").write_text(json.dumps(data, ensure_ascii=False, indent=2))
+
+
+def get_item(path: str) -> dict:
+    """Fiche d'une seule photo, sans avoir besoin de reparcourir tout le
+    dossier — utilisé par le MCP (iris_image_details) et par tout appelant
+    qui connaît déjà le chemin exact."""
+    p = Path(path)
+    if not p.is_file():
+        raise FileNotFoundError(f"Fichier introuvable: {p}")
+    sidecar = _read_sidecar(p)
+    # Sans root connu ici, le seul repli possible est le nom du dossier direct
+    # (moins fiable que list_gallery's rel_parts[0], mais get_item ne sert
+    # qu'aux photos déjà documentées — le cas sans sidecar y est marginal).
+    fallback_category = p.parent.parent.parent.name if len(p.parts) > 3 else p.parent.name
+    return {
+        "path": str(p),
+        "category_label": sidecar.get("category_label") or fallback_category,
+        "category_slug": sidecar.get("category_slug"),
+        "details": sidecar.get("details"),
+        "attributes": sidecar.get("attributes", []),
+        "rating": sidecar.get("rating", 0),
+        "renegat_posted": sidecar.get("renegat_posted"),
+        "has_sidecar": bool(sidecar),
+    }
+
+
+def semantic_search(
+    folder: str,
+    query: str,
+    category: str | None = None,
+    min_rating: int = 0,
+    top_k: int = 10,
+) -> list[dict]:
+    """Recherche par similarité CLIP texte→image — répond à "une photo qui
+    ressemble à X" plutôt qu'à une sous-chaîne exacte dans les attributs.
+    Réutilise les mêmes embeddings mis en cache par la passe 1 / Doublons
+    (data/embeddings.sqlite3) : une image déjà vue ne recoûte rien."""
+    items = list_gallery(folder)
+    if category:
+        items = [i for i in items if i["category_label"] == category]
+    if min_rating:
+        items = [i for i in items if (i.get("rating") or 0) >= min_rating]
+    if not items:
+        return []
+
+    paths_with_stat = [(Path(i["path"]), Path(i["path"]).stat().st_mtime, Path(i["path"]).stat().st_size) for i in items]
+    embeddings = classifier.batch_image_embeddings(paths_with_stat)
+
+    text_feat = classifier.text_embeddings([{"prompt": query}])[0].detach().cpu().numpy()
+
+    scored = []
+    for item in items:
+        emb = embeddings.get(item["path"])
+        if emb is None:
+            continue
+        scored.append({**item, "score": round(float(np.dot(emb, text_feat)), 4)})
+    scored.sort(key=lambda x: -x["score"])
+    return scored[:top_k]
 
 
 def set_rating(image_path: str, rating: int) -> None:

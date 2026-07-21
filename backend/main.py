@@ -105,6 +105,14 @@ class RatingRequest(BaseModel):
     rating: int
 
 
+class SearchRequest(BaseModel):
+    folder: str
+    query: str
+    category: str | None = None
+    min_rating: int = 0
+    top_k: int = 10
+
+
 @app.get("/")
 def index():
     return FileResponse(STATIC_DIR / "index.html")
@@ -433,6 +441,19 @@ def gallery_rating(req: RatingRequest):
     except (FileNotFoundError, ValueError) as e:
         raise HTTPException(400, str(e))
     return {"path": req.path, "rating": req.rating}
+
+
+@app.get("/api/gallery/item")
+def gallery_item(path: str):
+    try:
+        return gallery_module.get_item(path)
+    except FileNotFoundError as e:
+        raise HTTPException(404, str(e))
+
+
+@app.post("/api/gallery/search")
+def gallery_search(req: SearchRequest):
+    return {"items": gallery_module.semantic_search(req.folder, req.query, req.category, req.min_rating, req.top_k)}
 
 
 def _run_renegat_cli(args: list[str]) -> dict:
