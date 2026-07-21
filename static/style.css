@@ -455,6 +455,36 @@ textarea { resize: vertical; }
 .browse-item:hover { background: var(--bg-3); }
 .browse-empty { padding: 12px; color: var(--muted); }
 
+/* Notation étoiles (galerie) — remplissage piloté en JS (classe .filled),
+   pas de survol prévisualisé (ordre DOM gauche→droite incompatible avec un
+   simple sélecteur ~ pour remplir les étoiles précédentes). */
+.stars { font-size: 22px; letter-spacing: 2px; }
+.stars span { cursor: pointer; color: var(--border); transition: color 0.1s; }
+.stars span.filled { color: var(--warn); }
+.stars span:hover { color: var(--accent-dim); }
+
+/* Lightbox (image en grand) */
+.lightbox-box {
+  position: relative;
+  max-width: 92vw;
+  max-height: 92vh;
+  display: flex;
+}
+.lightbox-box img {
+  max-width: 92vw;
+  max-height: 92vh;
+  object-fit: contain;
+  border-radius: 4px;
+}
+.lightbox-close {
+  position: absolute;
+  top: -14px; right: -14px;
+  background: var(--bg-1);
+  border-radius: 50%;
+  width: 32px; height: 32px;
+  padding: 0;
+}
+
 /* Scrollbars discrètes */
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-thumb { background: #c4c8ce; border-radius: 5px; }

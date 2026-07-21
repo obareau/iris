@@ -112,6 +112,7 @@ function makeCard(item) {
   card.appendChild(prog);
 
   card.addEventListener("click", () => selectImage(item.path));
+  card.addEventListener("dblclick", () => openLightbox(item.path));
   return card;
 }
 
@@ -534,6 +535,18 @@ $("browseSelect").addEventListener("click", () => {
 });
 $("browseClose").addEventListener("click", () => { browseModal.hidden = true; });
 
+// ---------- Lightbox (image en grand, double-clic) ----------
+const lightboxModal = $("lightboxModal");
+const lightboxImg = $("lightboxImg");
+function openLightbox(path) {
+  lightboxImg.src = "/api/image?path=" + encodeURIComponent(path);
+  lightboxModal.hidden = false;
+}
+function closeLightbox() { lightboxModal.hidden = true; lightboxImg.src = ""; }
+$("lightboxClose").addEventListener("click", closeLightbox);
+lightboxModal.addEventListener("click", (e) => { if (e.target === lightboxModal) closeLightbox(); });
+document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !lightboxModal.hidden) closeLightbox(); });
+
 // ---------- Onglets Tri / Galerie ----------
 const views = { tri: $("view-tri"), galerie: $("view-galerie"), doublons: $("view-doublons") };
 views.galerie.style.display = "none"; // état initial : onglet Tri actif (le hidden HTML seul ne suffit pas, cf. commentaire ci-dessous)
@@ -564,6 +577,9 @@ const galInspDetails = $("galInspDetails");
 const galInspAttrSection = $("galInspAttrSection"), galInspAttrs = $("galInspAttrs");
 const galPostedStatus = $("galPostedStatus");
 const galRenegatBtn = $("galRenegatBtn");
+const galDeleteBtn = $("galDeleteBtn");
+const galBackfillBtn = $("galBackfillBtn");
+const galBackfillBar = $("galBackfillBar"), galBackfillCount = $("galBackfillCount"), galBackfillFill = $("galBackfillFill");
 
 let galItems = [];          // liste brute renvoyée par /api/gallery
 let galItemsByPath = new Map();
@@ -628,6 +644,7 @@ function galMakeCard(item) {
   card.appendChild(imgWrap);
   card.appendChild(foot);
   card.addEventListener("click", () => galSelectImage(item.path));
+  card.addEventListener("dblclick", () => openLightbox(item.path));
   return card;
 }
 
@@ -660,7 +677,37 @@ function galRenderInspector(item) {
     galPostedStatus.textContent = "";
     galRenegatBtn.textContent = "Publier en Renegat";
   }
+
+  galRenderStars(item.rating || 0);
 }
+
+// ---------- Notation étoiles ----------
+const galStarsEl = $("galStars");
+function galRenderStars(rating) {
+  galStarsEl.querySelectorAll("span").forEach(s => {
+    s.classList.toggle("filled", parseInt(s.dataset.star, 10) <= rating);
+  });
+}
+galStarsEl.querySelectorAll("span").forEach(s => {
+  s.addEventListener("click", async () => {
+    if (!galSelectedPath) return;
+    const rating = parseInt(s.dataset.star, 10);
+    // Cliquer l'étoile déjà au sommet de la note actuelle la remet à zéro
+    // (sinon impossible de redescendre à "pas de note" une fois notée).
+    const item = galItemsByPath.get(galSelectedPath);
+    const newRating = (item.rating === rating) ? 0 : rating;
+    galRenderStars(newRating); // retour visuel immédiat
+    const res = await fetch("/api/gallery/rating", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path: galSelectedPath, rating: newRating }),
+    });
+    if (res.ok) {
+      item.rating = newRating;
+    } else {
+      galRenderStars(item.rating || 0); // annule l'affichage si l'écriture a échoué
+    }
+  });
+});
 
 function galSelectImage(path) {
   galSelectedPath = path;
@@ -704,6 +751,56 @@ async function galLoad() {
 galLoadBtn.addEventListener("click", galLoad);
 galFilterCatEl.addEventListener("change", () => { galActiveCat = galFilterCatEl.value; galApplyFilters(); });
 galSearchEl.addEventListener("input", () => galApplyFilters());
+
+// ---------- Rétro-remplissage des détails (photos triées avant les sidecars) ----------
+function galVisiblePaths() {
+  // Respecte le filtre catégorie + recherche actif — cohérent avec ce que
+  // l'utilisateur voit à l'écran, pas la totalité du dossier.
+  return galItems
+    .filter(item => galCardByPath.get(item.path).style.display !== "none")
+    .map(item => item.path);
+}
+
+async function galBackfillPoll() {
+  const pRes = await fetch("/api/gallery/backfill-progress").then(r => r.json());
+  galBackfillCount.textContent = pRes.total ? `${pRes.done} / ${pRes.total}` : "—";
+  setBar(galBackfillFill, pRes.done, pRes.total);
+
+  if (pRes.status === "running") {
+    setTimeout(galBackfillPoll, 700);
+    return;
+  }
+  galBackfillBtn.disabled = false;
+  if (pRes.status === "error") {
+    galBackfillCount.textContent = "Erreur";
+    return;
+  }
+  galBackfillFill.classList.add("done");
+  await galLoad(); // recharge pour afficher les nouveaux détails/attributs
+}
+
+galBackfillBtn.addEventListener("click", async () => {
+  const folder = galFolderEl.value.trim();
+  if (!folder) { alert("Charge d'abord un dossier."); return; }
+  const visible = galVisiblePaths();
+  const missing = visible.filter(p => !galItemsByPath.get(p).details);
+  if (!missing.length) { galBackfillCount.textContent = "Rien à compléter (vue actuelle)"; return; }
+  if (!confirm(`Extraire détails + attributs pour ${missing.length} photo(s) sans sidecar ?`)) return;
+
+  galBackfillBtn.disabled = true;
+  galBackfillFill.classList.remove("done");
+  setBar(galBackfillFill, 0, 1);
+  const res = await fetch("/api/gallery/backfill", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ folder, paths: missing }),
+  });
+  if (!res.ok) {
+    galBackfillCount.textContent = "Erreur : " + (await res.text());
+    galBackfillBtn.disabled = false;
+    return;
+  }
+  galBackfillPoll();
+});
 
 // ---------- Publication Renegat (aperçu → confirmation) ----------
 const renegatModal = $("renegatModal");
@@ -773,8 +870,33 @@ renegatConfirm.addEventListener("click", async () => {
   }
 });
 
+galDeleteBtn.addEventListener("click", async () => {
+  if (!galSelectedPath) return;
+  const name = galSelectedPath.split("/").pop();
+  if (!confirm(`Supprimer définitivement de la galerie "${name}" ?\n(déplacée vers ~/.iris-trash, pas effacée pour de bon)`)) return;
+  galDeleteBtn.disabled = true;
+  try {
+    const res = await fetch("/api/dedupe/discard", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path: galSelectedPath }),
+    });
+    if (!res.ok) { alert("Erreur : " + (await res.text())); return; }
+    // Retire la carte + l'entrée locale sans recharger toute la galerie.
+    galCardByPath.get(galSelectedPath)?.remove();
+    galCardByPath.delete(galSelectedPath);
+    galItemsByPath.delete(galSelectedPath);
+    galItems = galItems.filter(i => i.path !== galSelectedPath);
+    galSelectedPath = null;
+    galInspBody.hidden = true; galInspEmpty.hidden = false;
+    galApplyFilters();
+  } finally {
+    galDeleteBtn.disabled = false;
+  }
+});
+
 // ---------- Doublons / images similaires ----------
 const dedupeFolderEl = $("dedupeFolder");
+const dedupeFilterCatEl = $("dedupeFilterCat");
 const dedupeThresholdEl = $("dedupeThreshold");
 const dedupeThresholdVal = $("dedupeThresholdVal");
 const dedupeBtn = $("dedupeBtn");
@@ -792,6 +914,25 @@ dedupeFolderEl.addEventListener("focus", () => {
     dedupeFolderEl.value = galFolderEl.value || destEl.value;
   }
 }, { once: true });
+
+// Peuple le filtre catégorie dès que le dossier est saisi — lecture seule
+// des sidecars/dossiers, aucun calcul de modèle (rapide, pas besoin d'un
+// bouton dédié).
+async function dedupeRefreshCategories() {
+  const folder = dedupeFolderEl.value.trim();
+  if (!folder) return;
+  try {
+    const res = await fetch("/api/gallery?folder=" + encodeURIComponent(folder));
+    if (!res.ok) return;
+    const data = await res.json();
+    const current = dedupeFilterCatEl.value;
+    const cats = [...new Set(data.items.map(i => i.category_label).filter(Boolean))].sort();
+    dedupeFilterCatEl.innerHTML = '<option value="">Toutes catégories</option>'
+      + cats.map(c => `<option value="${c}">${c}</option>`).join("");
+    dedupeFilterCatEl.value = current;
+  } catch (e) { /* silencieux : la détection tournera sans filtre pré-rempli */ }
+}
+dedupeFolderEl.addEventListener("blur", dedupeRefreshCategories);
 
 function dedupeMakeThumb(path) {
   const thumb = document.createElement("div");
@@ -898,7 +1039,11 @@ dedupeBtn.addEventListener("click", async () => {
 
   const res = await fetch("/api/dedupe", {
     method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ folder, threshold: dedupeThresholdEl.value / 100 }),
+    body: JSON.stringify({
+      folder,
+      threshold: dedupeThresholdEl.value / 100,
+      category: dedupeFilterCatEl.value || null,
+    }),
   });
   if (!res.ok) {
     dedupeSummary.textContent = "Erreur : " + (await res.text());

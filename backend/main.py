@@ -40,6 +40,8 @@ STATE = {
     "dedupe_job": {"status": "idle", "done": 0, "total": 0, "phase": None},
     "dedupe_job_lock": threading.Lock(),
     "dedupe_groups": [],
+    "backfill_job": {"status": "idle", "done": 0, "total": 0, "current": None},
+    "backfill_job_lock": threading.Lock(),
 }
 
 
@@ -86,10 +88,21 @@ class RenegatPublishRequest(BaseModel):
 class DedupeRequest(BaseModel):
     folder: str
     threshold: float = 0.92
+    category: str | None = None
 
 
 class DiscardRequest(BaseModel):
     path: str
+
+
+class BackfillRequest(BaseModel):
+    folder: str
+    paths: list[str] | None = None  # si None : toutes les images du dossier sans détails
+
+
+class RatingRequest(BaseModel):
+    path: str
+    rating: int
 
 
 @app.get("/")
@@ -135,6 +148,15 @@ def thumbnail(path: str):
     img.save(buf, format="JPEG", quality=80)
     buf.seek(0)
     return StreamingResponse(buf, media_type="image/jpeg")
+
+
+@app.get("/api/image")
+def image_full(path: str):
+    """Fichier original (pas de resize) — pour la vue en grand (double-clic)."""
+    p = Path(path)
+    if not p.is_file():
+        raise HTTPException(404, "Fichier introuvable")
+    return FileResponse(p)
 
 
 def _finalize_item(key: str, p, base: dict) -> None:
@@ -371,6 +393,48 @@ def get_gallery(folder: str):
     return {"items": gallery_module.list_gallery(folder)}
 
 
+def _run_backfill(folder: str, paths: list[str]):
+    STATE["backfill_job"] = {"status": "running", "done": 0, "total": 0, "current": None}
+    try:
+        gallery_module.backfill_details(folder, paths, progress=STATE["backfill_job"])
+        STATE["backfill_job"]["status"] = "done"
+    except Exception as e:
+        STATE["backfill_job"] = {"status": "error", "done": 0, "total": 0, "current": str(e)}
+
+
+@app.post("/api/gallery/backfill")
+def gallery_backfill(req: BackfillRequest):
+    with STATE["backfill_job_lock"]:
+        if STATE["backfill_job"]["status"] == "running":
+            raise HTTPException(409, "Un rétro-remplissage est déjà en cours")
+        if req.paths is not None:
+            paths = req.paths
+        else:
+            items = gallery_module.list_gallery(req.folder)
+            paths = [i["path"] for i in items if not i.get("details")]
+        if not paths:
+            raise HTTPException(400, "Rien à compléter")
+        STATE["backfill_job"] = {"status": "running", "done": 0, "total": len(paths), "current": None}
+
+    thread = threading.Thread(target=_run_backfill, args=(req.folder, paths), daemon=True)
+    thread.start()
+    return {"started": True, "total": len(paths)}
+
+
+@app.get("/api/gallery/backfill-progress")
+def gallery_backfill_progress():
+    return STATE["backfill_job"]
+
+
+@app.post("/api/gallery/rating")
+def gallery_rating(req: RatingRequest):
+    try:
+        gallery_module.set_rating(req.path, req.rating)
+    except (FileNotFoundError, ValueError) as e:
+        raise HTTPException(400, str(e))
+    return {"path": req.path, "rating": req.rating}
+
+
 def _run_renegat_cli(args: list[str]) -> dict:
     """Sous-processus vers ~/DEV/Recta (tsx, pas de build Electron nécessaire
     pour renegat-cli.ts) — pont entre la galerie Iris et la publication Recta."""
@@ -409,10 +473,14 @@ def renegat_publish(req: RenegatPublishRequest):
     return _run_renegat_cli(args)
 
 
-def _run_dedupe(folder: str, threshold: float):
+def _run_dedupe(folder: str, threshold: float, category: str | None):
     STATE["dedupe_job"] = {"status": "running", "done": 0, "total": 0, "phase": "scan"}
     try:
-        groups = dedupe_module.find_duplicate_groups(folder, threshold, progress=STATE["dedupe_job"])
+        items = gallery_module.list_gallery(folder)
+        if category:
+            items = [i for i in items if i["category_label"] == category]
+        files = [Path(i["path"]) for i in items]
+        groups = dedupe_module.find_duplicate_groups(files, threshold, progress=STATE["dedupe_job"])
         STATE["dedupe_groups"] = groups
         STATE["dedupe_job"]["status"] = "done"
     except Exception as e:
@@ -426,7 +494,7 @@ def dedupe(req: DedupeRequest):
             raise HTTPException(409, "Une détection de doublons est déjà en cours")
         STATE["dedupe_job"] = {"status": "running", "done": 0, "total": 0, "phase": "scan"}
 
-    thread = threading.Thread(target=_run_dedupe, args=(req.folder, req.threshold), daemon=True)
+    thread = threading.Thread(target=_run_dedupe, args=(req.folder, req.threshold, req.category), daemon=True)
     thread.start()
     return {"started": True}
 

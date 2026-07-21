@@ -5,7 +5,6 @@ from pathlib import Path
 import numpy as np
 
 import classifier
-import scanner
 
 TRASH_DIR = Path.home() / ".iris-trash"
 
@@ -33,13 +32,14 @@ def _union_find_groups(n: int, pairs: list[tuple[int, int]]) -> list[list[int]]:
     return [g for g in groups.values() if len(g) > 1]
 
 
-def find_duplicate_groups(folder: str, threshold: float = 0.92, progress: dict | None = None) -> list[dict]:
-    """Regroupe les images quasi-identiques ou très similaires d'un dossier
-    (récursif) via similarité cosinus sur les embeddings CLIP qu'Iris calcule
-    déjà en passe 1 — même cache SQLite (data/embeddings.sqlite3), donc une
-    image déjà analysée ne recoûte rien. O(n²) sur la similarité : correct
-    jusqu'à quelques milliers d'images, pas pensé au-delà."""
-    files = scanner.scan_folder(folder)
+def find_duplicate_groups(files: list[Path], threshold: float = 0.92, progress: dict | None = None) -> list[dict]:
+    """Regroupe les images quasi-identiques ou très similaires (parmi `files`)
+    via similarité cosinus sur les embeddings CLIP qu'Iris calcule déjà en
+    passe 1 — même cache SQLite (data/embeddings.sqlite3), donc une image
+    déjà analysée ne recoûte rien. `files` est déjà résolu par l'appelant
+    (main.py), filtré par catégorie si besoin via gallery.list_gallery.
+    O(n²) sur la similarité : correct jusqu'à quelques milliers d'images,
+    pas pensé au-delà."""
     if progress is not None:
         progress["total"] = len(files)
         progress["done"] = 0
