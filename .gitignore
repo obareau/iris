@@ -1,0 +1,15 @@
+# Environnement Python
+venv/
+__pycache__/
+*.pyc
+
+# Données locales (cache embeddings, logs d'application)
+data/
+
+# Poids de modèles téléchargés
+*.pt
+*.onnx
+
+# Divers
+.DS_Store
+server.log

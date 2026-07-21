@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Iris — tri d'images</title>
+<link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+<div class="app">
+
+  <!-- Barre supérieure + progression globale -->
+  <header class="topbar">
+    <div class="brand">🌈 <span>Iris</span></div>
+    <div class="global-progress" id="globalProgress">
+      <div class="gp-head">
+        <span id="gpLabel">Prêt</span>
+        <span id="gpCount"></span>
+      </div>
+      <div class="gp-track"><div class="gp-fill" id="gpFill"></div></div>
+    </div>
+  </header>
+
+  <div class="workspace">
+
+    <!-- Panneau gauche : contrôles -->
+    <aside class="panel panel-left">
+      <section class="pblock">
+        <h3>Dossiers</h3>
+        <label class="field">Source
+          <div class="path-picker">
+            <input id="folder" type="text" placeholder="/home/olivier/Photos" />
+            <button type="button" class="btn ghost" data-browse-target="folder">…</button>
+          </div>
+        </label>
+        <label class="field">Destination
+          <div class="path-picker">
+            <input id="dest" type="text" placeholder="/home/olivier/Photos/_classees" />
+            <button type="button" class="btn ghost" data-browse-target="dest">…</button>
+          </div>
+        </label>
+      </section>
+
+      <section class="pblock">
+        <h3>Catégories</h3>
+        <textarea id="categories" rows="5"></textarea>
+        <small>slug | label | description (anglais)</small>
+      </section>
+
+      <section class="pblock">
+        <h3>Analyse</h3>
+        <button id="analyzeBtn" class="btn primary full">Analyser (passe 1)</button>
+        <div class="minibar" id="analyzeBar">
+          <div class="minibar-head"><span>Classement</span><span id="analyzeCount">—</span></div>
+          <div class="mb-track"><div class="mb-fill" id="analyzeFill"></div></div>
+        </div>
+
+        <button id="detailsBtn" class="btn full" disabled>Extraire les détails (passe 2)</button>
+        <div class="minibar" id="detailsBar">
+          <div class="minibar-head"><span>Détails</span><span id="detailsCount">—</span></div>
+          <div class="mb-track"><div class="mb-fill" id="detailsFill"></div></div>
+        </div>
+
+        <button id="refineBtn" class="btn full" disabled>Affiner les attributs (passe 3)</button>
+        <div class="minibar" id="refineBar">
+          <div class="minibar-head"><span>Attributs</span><span id="refineCount">—</span></div>
+          <div class="mb-track"><div class="mb-fill" id="refineFill"></div></div>
+        </div>
+      </section>
+
+      <section class="pblock">
+        <h3>Rangement</h3>
+        <button id="applyBtn" class="btn primary full" disabled>Appliquer le tri</button>
+        <button id="undoBtn" class="btn ghost full">Annuler la dernière application</button>
+        <div class="status-line" id="applyStatus"></div>
+      </section>
+    </aside>
+
+    <!-- Panneau central : grille -->
+    <main class="panel panel-center">
+      <div class="grid-toolbar">
+        <div class="gt-left">
+          <select id="filterCat" class="select-sm">
+            <option value="">Toutes catégories</option>
+          </select>
+          <span class="counts" id="counts"></span>
+        </div>
+        <div class="gt-right">
+          <span class="thumb-icon small">▪</span>
+          <input id="thumbSize" type="range" min="120" max="340" value="200" />
+          <span class="thumb-icon large">◼</span>
+        </div>
+      </div>
+      <div id="grid" class="grid"></div>
+      <div id="gridEmpty" class="grid-empty">Choisissez un dossier source puis lancez l'analyse.</div>
+    </main>
+
+    <!-- Panneau droit : inspecteur -->
+    <aside class="panel panel-right" id="inspector">
+      <div class="insp-empty" id="inspEmpty">Sélectionnez une image pour voir ses détails.</div>
+      <div class="insp-body" id="inspBody" hidden>
+        <div class="insp-preview"><img id="inspImg" alt="" /></div>
+        <div class="insp-name" id="inspName"></div>
+
+        <div class="insp-rows">
+          <div class="insp-row">
+            <span class="ir-key">Catégorie</span>
+            <select id="inspCat" class="select-sm"></select>
+          </div>
+          <div class="insp-row"><span class="ir-key">Couleur</span><span class="ir-val" id="inspColor"></span></div>
+          <div class="insp-row"><span class="ir-key">Format</span><span class="ir-val" id="inspOrient"></span></div>
+          <div class="insp-row"><span class="ir-key">Dimensions</span><span class="ir-val" id="inspDims"></span></div>
+          <div class="insp-row"><span class="ir-key">Taille</span><span class="ir-val" id="inspSize"></span></div>
+          <div class="insp-row"><span class="ir-key">Confiance</span><span class="ir-val" id="inspConf"></span></div>
+          <div class="insp-row"><span class="ir-key">Détecté par</span><span class="ir-val" id="inspSource"></span></div>
+        </div>
+
+        <div class="insp-section" id="inspScoresSection" hidden>
+          <h4>Scores par catégorie (CLIP)</h4>
+          <div class="kv-list" id="inspScores"></div>
+        </div>
+
+        <div class="insp-section" id="inspDetectSection" hidden>
+          <h4>Objets détectés (YOLO)</h4>
+          <div class="chips" id="inspDetections"></div>
+        </div>
+
+        <div class="insp-section">
+          <h4>Détails extraits (passe 2)</h4>
+          <div class="insp-details" id="inspDetails">—</div>
+        </div>
+
+        <div class="insp-section" id="inspAttrSection" hidden>
+          <h4>Attributs affinés (passe 3)</h4>
+          <div class="kv-list" id="inspAttrs"></div>
+        </div>
+
+        <div class="insp-section">
+          <h4>Nouveau nom</h4>
+          <code class="insp-newname" id="inspNewName">—</code>
+        </div>
+      </div>
+    </aside>
+
+  </div>
+</div>
+
+<!-- Modale de navigation dossiers -->
+<div id="browseModal" class="modal" hidden>
+  <div class="modal-box">
+    <div class="modal-header">
+      <h2>Choisir un dossier</h2>
+      <button type="button" id="browseClose" class="btn ghost">✕</button>
+    </div>
+    <div class="path-picker">
+      <input id="browsePath" type="text" />
+      <button type="button" id="browseGo" class="btn ghost">Aller</button>
+    </div>
+    <div id="browseList" class="browse-list"></div>
+    <div class="modal-actions">
+      <button type="button" id="browseUp" class="btn ghost">⬆ Parent</button>
+      <button type="button" id="browseSelect" class="btn primary">Choisir ce dossier</button>
+    </div>
+  </div>
+</div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

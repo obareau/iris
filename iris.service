@@ -1,0 +1,14 @@
+[Unit]
+Description=Iris - tri automatique d'images
+After=network.target
+
+[Service]
+Type=simple
+User=olivier
+WorkingDirectory=/home/olivier/iris
+ExecStart=/home/olivier/iris/venv/bin/uvicorn backend.main:app --host 0.0.0.0 --port 8800
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

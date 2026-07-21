@@ -1,0 +1,10 @@
+fastapi
+uvicorn[standard]
+python-multipart
+pillow
+numpy
+open_clip_torch
+transformers
+einops
+accelerate
+ultralytics

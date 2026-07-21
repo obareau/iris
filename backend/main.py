@@ -1,0 +1,340 @@
+import io
+import sys
+import threading
+import time
+from pathlib import Path
+
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
+from PIL import Image
+
+sys.path.insert(0, str(Path(__file__).parent))
+import classifier
+import details as details_module
+import organizer
+import prefilter
+import scanner
+
+app = FastAPI(title="Argus")
+
+STATIC_DIR = Path(__file__).parent.parent / "static"
+
+STATE = {
+    "categories": [dict(c) for c in classifier.DEFAULT_CATEGORIES],
+    "files": [],  # list[Path]
+    "results": {},  # path str -> dict
+    "job": {"status": "idle", "done": 0, "total": 0, "current": None, "phase": None},
+    "job_lock": threading.Lock(),
+    "details_job": {"status": "idle", "done": 0, "total": 0, "current": None},
+    "details_job_lock": threading.Lock(),
+    "refine_job": {"status": "idle", "done": 0, "total": 0, "current": None},
+    "refine_job_lock": threading.Lock(),
+}
+
+
+class ScanRequest(BaseModel):
+    folder: str
+
+
+class Category(BaseModel):
+    slug: str
+    label: str
+    prompt: str
+
+
+class AnalyzeRequest(BaseModel):
+    folder: str
+    categories: list[Category] | None = None
+
+
+class OverrideRequest(BaseModel):
+    path: str
+    category_slug: str
+
+
+class ApplyRequest(BaseModel):
+    dest_root: str
+    paths: list[str] | None = None  # if None, apply all analyzed results
+
+
+class ExtractDetailsRequest(BaseModel):
+    paths: list[str] | None = None  # if None, extract for all analyzed results missing details
+
+
+@app.get("/")
+def index():
+    return FileResponse(STATIC_DIR / "index.html")
+
+
+@app.get("/api/browse")
+def browse(path: str | None = None):
+    base = Path(path).expanduser().resolve() if path else Path.home()
+    if not base.is_dir():
+        raise HTTPException(404, f"Dossier introuvable: {base}")
+    try:
+        entries = [
+            {"name": p.name, "path": str(p)}
+            for p in sorted(base.iterdir(), key=lambda x: x.name.lower())
+            if p.is_dir() and not p.name.startswith(".")
+        ]
+    except PermissionError:
+        raise HTTPException(403, "Accès refusé à ce dossier")
+    parent = str(base.parent) if base.parent != base else None
+    return {"path": str(base), "parent": parent, "entries": entries}
+
+
+@app.post("/api/scan")
+def scan(req: ScanRequest):
+    try:
+        files = scanner.scan_folder(req.folder)
+    except FileNotFoundError as e:
+        raise HTTPException(404, str(e))
+    STATE["files"] = files
+    return {"count": len(files)}
+
+
+@app.get("/api/thumbnail")
+def thumbnail(path: str):
+    p = Path(path)
+    if not p.is_file():
+        raise HTTPException(404, "Fichier introuvable")
+    img = Image.open(p).convert("RGB")
+    img.thumbnail((220, 220))
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG", quality=80)
+    buf.seek(0)
+    return StreamingResponse(buf, media_type="image/jpeg")
+
+
+def _finalize_item(key: str, p, base: dict) -> None:
+    """Attach the cheap deterministic attributes (colour/orientation/size) and
+    commit the item into the shared results dict."""
+    try:
+        base["color_mode"] = classifier.detect_color_mode(p)
+        base["orientation"] = classifier.detect_orientation(p)
+        with Image.open(p) as im:
+            base["width"], base["height"] = im.size
+        base["filesize"] = p.stat().st_size
+        STATE["results"][key] = base
+    except Exception as e:
+        STATE["results"][key] = {"path": key, "error": str(e)}
+
+
+def _run_analysis(categories: list[dict]):
+    files = STATE["files"]
+    STATE["job"] = {"status": "running", "done": 0, "total": len(files), "current": None, "phase": "yolo"}
+    STATE["results"] = {}
+
+    available_slugs = {c["slug"] for c in categories}
+
+    paths_with_stat = []
+    for p in files:
+        st = p.stat()
+        paths_with_stat.append((p, st.st_mtime, st.st_size))
+
+    # Pass 1: fast YOLO pre-filter. Resolves clear-cut person/animal/object
+    # images instantly; anything ambiguous (typically landscapes) is left
+    # for the slower CLIP zero-shot pass below. Detections are kept for every
+    # image (even those handed to CLIP) so the inspector can show them.
+    needs_clip = []
+    detections_map: dict[str, list] = {}
+    for p, mtime, size in paths_with_stat:
+        key = str(p)
+        STATE["job"]["current"] = key
+        try:
+            dets = prefilter.detect(p)
+        except Exception:
+            dets = []
+        detections_map[key] = prefilter.summarize(dets)
+        quick = prefilter.pick_category(dets, available_slugs)
+        if quick is not None:
+            slug, confidence = quick
+            label = next((c["label"] for c in categories if c["slug"] == slug), classifier.FALLBACK_CATEGORY["label"])
+            _finalize_item(key, p, {
+                "path": key,
+                "category_slug": slug,
+                "category_label": label,
+                "confidence": round(confidence, 3),
+                "source": "yolo",
+                "detections": detections_map[key],
+            })
+            STATE["job"]["done"] += 1
+        else:
+            needs_clip.append((p, mtime, size))
+
+    # Pass 2: CLIP zero-shot for whatever YOLO couldn't resolve confidently.
+    STATE["job"]["phase"] = "clip"
+    text_feats = classifier.text_embeddings(categories)
+    embeddings = classifier.batch_image_embeddings(needs_clip)
+
+    for p, mtime, size in needs_clip:
+        key = str(p)
+        STATE["job"]["current"] = key
+        try:
+            emb = embeddings.get(key)
+            if emb is None:
+                raise ValueError("embedding indisponible")
+            slug, confidence = classifier.classify(emb, categories, text_feats)
+            scores = classifier.classify_scores(emb, categories, text_feats)
+            label = next((c["label"] for c in categories if c["slug"] == slug), classifier.FALLBACK_CATEGORY["label"])
+            _finalize_item(key, p, {
+                "path": key,
+                "category_slug": slug,
+                "category_label": label,
+                "confidence": round(confidence, 3),
+                "source": "clip",
+                "detections": detections_map.get(key, []),
+                "clip_scores": scores,
+            })
+        except Exception as e:
+            STATE["results"][key] = {"path": key, "error": str(e)}
+        STATE["job"]["done"] += 1
+
+    STATE["job"]["current"] = None
+    STATE["job"]["status"] = "done"
+
+
+@app.post("/api/analyze")
+def analyze(req: AnalyzeRequest):
+    with STATE["job_lock"]:
+        if STATE["job"]["status"] == "running":
+            raise HTTPException(409, "Une analyse est déjà en cours")
+        try:
+            files = scanner.scan_folder(req.folder)
+        except FileNotFoundError as e:
+            raise HTTPException(404, str(e))
+        STATE["files"] = files
+        categories = [c.model_dump() for c in req.categories] if req.categories else STATE["categories"]
+        STATE["categories"] = categories
+
+    thread = threading.Thread(target=_run_analysis, args=(categories,), daemon=True)
+    thread.start()
+    return {"started": True, "total": len(files)}
+
+
+@app.get("/api/progress")
+def progress():
+    return STATE["job"]
+
+
+@app.get("/api/results")
+def results():
+    return {"categories": STATE["categories"], "items": list(STATE["results"].values())}
+
+
+@app.post("/api/override")
+def override(req: OverrideRequest):
+    item = STATE["results"].get(req.path)
+    if item is None:
+        raise HTTPException(404, "Image non analysée")
+    label = next(
+        (c["label"] for c in STATE["categories"] if c["slug"] == req.category_slug),
+        classifier.FALLBACK_CATEGORY["label"] if req.category_slug == "autre" else req.category_slug,
+    )
+    item["category_slug"] = req.category_slug
+    item["category_label"] = label
+    return item
+
+
+def _run_details(paths: list[str]):
+    STATE["details_job"] = {"status": "running", "done": 0, "total": len(paths), "current": None}
+    for path in paths:
+        item = STATE["results"].get(path)
+        if item is None or "error" in item:
+            STATE["details_job"]["done"] += 1
+            continue
+        STATE["details_job"]["current"] = path
+        try:
+            detail = details_module.extract_detail(Path(path), item["category_slug"])
+            item["details"] = detail["text"]
+            item["details_slug"] = detail["slug"]
+        except Exception as e:
+            item["details_error"] = str(e)
+        STATE["details_job"]["done"] += 1
+    STATE["details_job"]["current"] = None
+    STATE["details_job"]["status"] = "done"
+
+
+@app.post("/api/extract-details")
+def extract_details(req: ExtractDetailsRequest):
+    with STATE["details_job_lock"]:
+        if STATE["details_job"]["status"] == "running":
+            raise HTTPException(409, "Une extraction est déjà en cours")
+        if req.paths is not None:
+            paths = req.paths
+        else:
+            paths = [p for p, v in STATE["results"].items() if "error" not in v and "details" not in v]
+        if not paths:
+            raise HTTPException(400, "Rien à extraire")
+
+    thread = threading.Thread(target=_run_details, args=(paths,), daemon=True)
+    thread.start()
+    return {"started": True, "total": len(paths)}
+
+
+@app.get("/api/details-progress")
+def details_progress():
+    return STATE["details_job"]
+
+
+def _run_refine(paths: list[str]):
+    STATE["refine_job"] = {"status": "running", "done": 0, "total": len(paths), "current": None}
+    for path in paths:
+        item = STATE["results"].get(path)
+        if item is None or "error" in item:
+            STATE["refine_job"]["done"] += 1
+            continue
+        STATE["refine_job"]["current"] = path
+        try:
+            item["attributes"] = details_module.refine_attributes(Path(path), item["category_slug"])
+        except Exception as e:
+            item["attributes_error"] = str(e)
+        STATE["refine_job"]["done"] += 1
+    STATE["refine_job"]["current"] = None
+    STATE["refine_job"]["status"] = "done"
+
+
+@app.post("/api/refine")
+def refine(req: ExtractDetailsRequest):
+    with STATE["refine_job_lock"]:
+        if STATE["refine_job"]["status"] == "running":
+            raise HTTPException(409, "Un affinage est déjà en cours")
+        if req.paths is not None:
+            paths = req.paths
+        else:
+            paths = [p for p, v in STATE["results"].items() if "error" not in v and "attributes" not in v]
+        if not paths:
+            raise HTTPException(400, "Rien à affiner")
+
+    thread = threading.Thread(target=_run_refine, args=(paths,), daemon=True)
+    thread.start()
+    return {"started": True, "total": len(paths)}
+
+
+@app.get("/api/refine-progress")
+def refine_progress():
+    return STATE["refine_job"]
+
+
+@app.post("/api/apply")
+def apply(req: ApplyRequest):
+    items = [v for v in STATE["results"].values() if "error" not in v]
+    if req.paths is not None:
+        wanted = set(req.paths)
+        items = [i for i in items if i["path"] in wanted]
+    if not items:
+        raise HTTPException(400, "Rien à appliquer")
+    summary = organizer.apply_moves(items, req.dest_root)
+    for i in items:
+        STATE["results"].pop(i["path"], None)
+    return summary
+
+
+@app.post("/api/undo")
+def undo():
+    return organizer.undo_last()
+
+
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
