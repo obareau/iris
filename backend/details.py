@@ -113,6 +113,7 @@ ATTRIBUTE_SCHEMAS = {
         ("glasses", "Lunettes"),
         ("tattoos", "Tatouages visibles"),
         ("clothing", "Tenue"),
+        ("pose_or_action", "Pose / posture"),
         ("distinctive_features", "Traits distinctifs"),
     ],
     "paysages": [
