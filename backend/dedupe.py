@@ -46,7 +46,13 @@ def find_duplicate_groups(files: list[Path], threshold: float = 0.92, progress: 
         progress["phase"] = "embeddings"
 
     paths_with_stat = [(p, p.stat().st_mtime, p.stat().st_size) for p in files]
-    embeddings = classifier.batch_image_embeddings(paths_with_stat)
+    cancel_check = (lambda: progress.get("cancel_requested")) if progress is not None else None
+    try:
+        embeddings = classifier.batch_image_embeddings(paths_with_stat, cancel_check=cancel_check)
+    except classifier.Cancelled:
+        if progress is not None:
+            progress["status"] = "cancelled"
+        return []
 
     if progress is not None:
         progress["done"] = len(files)

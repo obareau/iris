@@ -28,6 +28,14 @@ const gpLabel = $("gpLabel"), gpCount = $("gpCount"), gpFill = $("gpFill");
 const analyzeBar = $("analyzeBar"), analyzeCount = $("analyzeCount"), analyzeFill = $("analyzeFill");
 const detailsBar = $("detailsBar"), detailsCount = $("detailsCount"), detailsFill = $("detailsFill");
 const refineBar = $("refineBar"), refineCount = $("refineCount"), refineFill = $("refineFill");
+const analyzeCancelBtn = $("analyzeCancelBtn"), detailsCancelBtn = $("detailsCancelBtn"), refineCancelBtn = $("refineCancelBtn");
+
+function wireCancelBtn(btn, endpoint) {
+  btn.addEventListener("click", () => fetch(endpoint, { method: "POST" }));
+}
+wireCancelBtn(analyzeCancelBtn, "/api/analyze/cancel");
+wireCancelBtn(detailsCancelBtn, "/api/extract-details/cancel");
+wireCancelBtn(refineCancelBtn, "/api/refine/cancel");
 
 const inspEmpty = $("inspEmpty"), inspBody = $("inspBody");
 const inspImg = $("inspImg"), inspName = $("inspName");
@@ -358,13 +366,14 @@ async function pollAnalyze() {
   analyzeCount.textContent = `${pRes.done} / ${pRes.total}`;
   setBar(analyzeFill, pRes.done, pRes.total);
   markProcessing(pRes.current);
+  analyzeCancelBtn.hidden = pRes.status !== "running";
 
   if (pRes.status === "running") {
     setTimeout(pollAnalyze, 600);
   } else {
     clearProcessing();
     analyzeFill.classList.add("done");
-    updateGlobal("Analyse terminée", pRes.total, pRes.total, true);
+    updateGlobal(pRes.status === "cancelled" ? "Analyse annulée" : "Analyse terminée", pRes.total, pRes.total, true);
     analyzeBtn.disabled = false;
     detailsBtn.disabled = order.length === 0;
     refineBtn.disabled = order.length === 0;
@@ -402,13 +411,14 @@ async function pollDetails() {
   detailsCount.textContent = `${pRes.done} / ${pRes.total}`;
   setBar(detailsFill, pRes.done, pRes.total);
   markProcessing(pRes.current);
+  detailsCancelBtn.hidden = pRes.status !== "running";
 
   if (pRes.status === "running") {
     setTimeout(pollDetails, 700);
   } else {
     clearProcessing();
     detailsFill.classList.add("done");
-    updateGlobal("Détails terminés", pRes.total, pRes.total, true);
+    updateGlobal(pRes.status === "cancelled" ? "Détails annulés" : "Détails terminés", pRes.total, pRes.total, true);
     detailsBtn.disabled = false;
   }
 }
@@ -443,13 +453,14 @@ async function pollRefine() {
   refineCount.textContent = `${pRes.done} / ${pRes.total}`;
   setBar(refineFill, pRes.done, pRes.total);
   markProcessing(pRes.current);
+  refineCancelBtn.hidden = pRes.status !== "running";
 
   if (pRes.status === "running") {
     setTimeout(pollRefine, 700);
   } else {
     clearProcessing();
     refineFill.classList.add("done");
-    updateGlobal("Attributs affinés", pRes.total, pRes.total, true);
+    updateGlobal(pRes.status === "cancelled" ? "Attributs annulés" : "Attributs affinés", pRes.total, pRes.total, true);
     refineBtn.disabled = false;
   }
 }
@@ -580,6 +591,8 @@ const galRenegatBtn = $("galRenegatBtn");
 const galDeleteBtn = $("galDeleteBtn");
 const galBackfillBtn = $("galBackfillBtn");
 const galBackfillBar = $("galBackfillBar"), galBackfillCount = $("galBackfillCount"), galBackfillFill = $("galBackfillFill");
+const galBackfillCancelBtn = $("galBackfillCancelBtn");
+wireCancelBtn(galBackfillCancelBtn, "/api/gallery/backfill/cancel");
 
 let galItems = [];          // liste brute renvoyée par /api/gallery
 let galItemsByPath = new Map();
@@ -900,6 +913,7 @@ async function galBackfillPoll() {
   const pRes = await fetch("/api/gallery/backfill-progress").then(r => r.json());
   galBackfillCount.textContent = pRes.total ? `${pRes.done} / ${pRes.total}` : "—";
   setBar(galBackfillFill, pRes.done, pRes.total);
+  galBackfillCancelBtn.hidden = pRes.status !== "running";
 
   if (pRes.status === "running") {
     setTimeout(galBackfillPoll, 700);
@@ -910,6 +924,7 @@ async function galBackfillPoll() {
     galBackfillCount.textContent = "Erreur";
     return;
   }
+  if (pRes.status === "cancelled") galBackfillCount.textContent += " (annulé)";
   galBackfillFill.classList.add("done");
   await galLoad(); // recharge pour afficher les nouveaux détails/attributs
 }
@@ -1036,6 +1051,8 @@ const galBulkClearBtn = $("galBulkClearBtn");
 const galBulkStars = $("galBulkStars");
 const galBulkDeleteBtn = $("galBulkDeleteBtn");
 const galBulkRefineBtn = $("galBulkRefineBtn");
+const galBulkRefineCancelBtn = $("galBulkRefineCancelBtn");
+wireCancelBtn(galBulkRefineCancelBtn, "/api/gallery/refine/cancel");
 const galSelectAllBtn = $("galSelectAllBtn");
 
 let galSelectedPaths = new Set();
@@ -1136,6 +1153,7 @@ async function galRefinePoll() {
   galBulkRefineBtn.textContent = pRes.total
     ? `Réaffinage… ${pRes.done} / ${pRes.total}`
     : "Réaffinage…";
+  galBulkRefineCancelBtn.hidden = pRes.status !== "running";
   if (pRes.status === "running") { setTimeout(galRefinePoll, 700); return; }
   galBulkRefineBtn.disabled = false;
   galBulkRefineBtn.textContent = "Réaffiner les attributs (passe 3)";
@@ -1189,6 +1207,8 @@ const dedupeThresholdEl = $("dedupeThreshold");
 const dedupeThresholdVal = $("dedupeThresholdVal");
 const dedupeBtn = $("dedupeBtn");
 const dedupeBar = $("dedupeBar"), dedupePhase = $("dedupePhase"), dedupeCount = $("dedupeCount"), dedupeFill = $("dedupeFill");
+const dedupeCancelBtn = $("dedupeCancelBtn");
+wireCancelBtn(dedupeCancelBtn, "/api/dedupe/cancel");
 const dedupeSummary = $("dedupeSummary");
 const dedupeGroupsEl = $("dedupeGroups");
 const dedupeEmptyEl = $("dedupeEmpty");
@@ -1300,6 +1320,7 @@ async function dedupePoll() {
   dedupePhase.textContent = phase;
   dedupeCount.textContent = pRes.total ? `${pRes.done} / ${pRes.total}` : "—";
   setBar(dedupeFill, pRes.done, pRes.total);
+  dedupeCancelBtn.hidden = pRes.status !== "running";
 
   if (pRes.status === "running") {
     setTimeout(dedupePoll, 600);
@@ -1308,6 +1329,10 @@ async function dedupePoll() {
   dedupeBtn.disabled = false;
   if (pRes.status === "error") {
     dedupeSummary.textContent = "Erreur : " + pRes.phase;
+    return;
+  }
+  if (pRes.status === "cancelled") {
+    dedupeSummary.textContent = "Annulé.";
     return;
   }
   dedupeFill.classList.add("done");

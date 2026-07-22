@@ -157,9 +157,10 @@ textarea { resize: vertical; }
 .minibar { margin: 6px 0 12px; opacity: 0.55; }
 .minibar.active { opacity: 1; }
 .minibar-head {
-  display: flex; justify-content: space-between;
+  display: flex; justify-content: space-between; align-items: center; gap: 6px;
   font-size: 11px; color: var(--muted); margin-bottom: 4px;
 }
+.minibar-head .btn { padding: 2px 8px; font-size: 10px; }
 .mb-track { height: 4px; background: var(--bg-3); border-radius: 3px; overflow: hidden; }
 .mb-fill {
   height: 100%; width: 0;

@@ -145,6 +145,10 @@ def backfill_details(folder: str, paths: list[str], progress: dict | None = None
         progress["done"] = 0
 
     for path_str in paths:
+        if progress is not None and progress.get("cancel_requested"):
+            progress["status"] = "cancelled"
+            progress["current"] = None
+            return
         path = Path(path_str)
         if progress is not None:
             progress["current"] = path_str
@@ -185,6 +189,10 @@ def refine_attributes_for(folder: str, paths: list[str], progress: dict | None =
         progress["done"] = 0
 
     for path_str in paths:
+        if progress is not None and progress.get("cancel_requested"):
+            progress["status"] = "cancelled"
+            progress["current"] = None
+            return
         path = Path(path_str)
         if progress is not None:
             progress["current"] = path_str

@@ -56,19 +56,19 @@
         <h3>Analyse</h3>
         <button id="analyzeBtn" class="btn primary full">Analyser (passe 1)</button>
         <div class="minibar" id="analyzeBar">
-          <div class="minibar-head"><span>Classement</span><span id="analyzeCount">—</span></div>
+          <div class="minibar-head"><span>Classement</span><span id="analyzeCount">—</span><button id="analyzeCancelBtn" class="btn ghost" hidden>Annuler</button></div>
           <div class="mb-track"><div class="mb-fill" id="analyzeFill"></div></div>
         </div>
 
         <button id="detailsBtn" class="btn full" disabled>Extraire les détails (passe 2)</button>
         <div class="minibar" id="detailsBar">
-          <div class="minibar-head"><span>Détails</span><span id="detailsCount">—</span></div>
+          <div class="minibar-head"><span>Détails</span><span id="detailsCount">—</span><button id="detailsCancelBtn" class="btn ghost" hidden>Annuler</button></div>
           <div class="mb-track"><div class="mb-fill" id="detailsFill"></div></div>
         </div>
 
         <button id="refineBtn" class="btn full" disabled>Affiner les attributs (passe 3)</button>
         <div class="minibar" id="refineBar">
-          <div class="minibar-head"><span>Attributs</span><span id="refineCount">—</span></div>
+          <div class="minibar-head"><span>Attributs</span><span id="refineCount">—</span><button id="refineCancelBtn" class="btn ghost" hidden>Annuler</button></div>
           <div class="mb-track"><div class="mb-fill" id="refineFill"></div></div>
         </div>
       </section>
@@ -193,7 +193,7 @@
         <small>Photos triées avant l'ajout des sidecars — extrait détails + attributs sans repasser par tout le pipeline.</small>
         <button id="galBackfillBtn" class="btn full" style="margin-top:8px">Compléter les détails manquants</button>
         <div class="minibar" id="galBackfillBar">
-          <div class="minibar-head"><span>Rétro-remplissage</span><span id="galBackfillCount">—</span></div>
+          <div class="minibar-head"><span>Rétro-remplissage</span><span id="galBackfillCount">—</span><button id="galBackfillCancelBtn" class="btn ghost" hidden>Annuler</button></div>
           <div class="mb-track"><div class="mb-fill" id="galBackfillFill"></div></div>
         </div>
       </section>
@@ -207,6 +207,7 @@
         </div>
         <div class="gt-right">
           <button id="galBulkRefineBtn" class="btn ghost">Réaffiner les attributs (passe 3)</button>
+          <button id="galBulkRefineCancelBtn" class="btn ghost" hidden>Annuler</button>
           <span class="stars" id="galBulkStars">
             <span data-star="1">★</span><span data-star="2">★</span><span data-star="3">★</span><span data-star="4">★</span><span data-star="5">★</span>
           </span>
@@ -271,7 +272,7 @@
         </label>
         <button id="dedupeBtn" class="btn primary full">Détecter les doublons</button>
         <div class="minibar" id="dedupeBar">
-          <div class="minibar-head"><span id="dedupePhase">Analyse</span><span id="dedupeCount">—</span></div>
+          <div class="minibar-head"><span id="dedupePhase">Analyse</span><span id="dedupeCount">—</span><button id="dedupeCancelBtn" class="btn ghost" hidden>Annuler</button></div>
           <div class="mb-track"><div class="mb-fill" id="dedupeFill"></div></div>
         </div>
       </section>

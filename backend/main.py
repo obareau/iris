@@ -190,7 +190,7 @@ def _finalize_item(key: str, p, base: dict) -> None:
 
 def _run_analysis(categories: list[dict]):
     files = STATE["files"]
-    STATE["job"] = {"status": "running", "done": 0, "total": len(files), "current": None, "phase": "yolo"}
+    STATE["job"] = {"status": "running", "done": 0, "total": len(files), "current": None, "phase": "yolo", "cancel_requested": False}
     STATE["results"] = {}
 
     available_slugs = {c["slug"] for c in categories}
@@ -207,6 +207,10 @@ def _run_analysis(categories: list[dict]):
     needs_clip = []
     detections_map: dict[str, list] = {}
     for p, mtime, size in paths_with_stat:
+        if STATE["job"]["cancel_requested"]:
+            STATE["job"]["status"] = "cancelled"
+            STATE["job"]["current"] = None
+            return
         key = str(p)
         STATE["job"]["current"] = key
         try:
@@ -230,12 +234,21 @@ def _run_analysis(categories: list[dict]):
         else:
             needs_clip.append((p, mtime, size))
 
+    if STATE["job"]["cancel_requested"]:
+        STATE["job"]["status"] = "cancelled"
+        STATE["job"]["current"] = None
+        return
+
     # Pass 2: CLIP zero-shot for whatever YOLO couldn't resolve confidently.
     STATE["job"]["phase"] = "clip"
     text_feats = classifier.text_embeddings(categories)
     embeddings = classifier.batch_image_embeddings(needs_clip)
 
     for p, mtime, size in needs_clip:
+        if STATE["job"]["cancel_requested"]:
+            STATE["job"]["status"] = "cancelled"
+            STATE["job"]["current"] = None
+            return
         key = str(p)
         STATE["job"]["current"] = key
         try:
@@ -260,6 +273,13 @@ def _run_analysis(categories: list[dict]):
 
     STATE["job"]["current"] = None
     STATE["job"]["status"] = "done"
+
+
+@app.post("/api/analyze/cancel")
+def analyze_cancel():
+    if STATE["job"]["status"] == "running":
+        STATE["job"]["cancel_requested"] = True
+    return STATE["job"]
 
 
 @app.post("/api/analyze")
@@ -305,8 +325,12 @@ def override(req: OverrideRequest):
 
 
 def _run_details(paths: list[str]):
-    STATE["details_job"] = {"status": "running", "done": 0, "total": len(paths), "current": None}
+    STATE["details_job"] = {"status": "running", "done": 0, "total": len(paths), "current": None, "cancel_requested": False}
     for path in paths:
+        if STATE["details_job"]["cancel_requested"]:
+            STATE["details_job"]["status"] = "cancelled"
+            STATE["details_job"]["current"] = None
+            return
         item = STATE["results"].get(path)
         if item is None or "error" in item:
             STATE["details_job"]["done"] += 1
@@ -321,6 +345,13 @@ def _run_details(paths: list[str]):
         STATE["details_job"]["done"] += 1
     STATE["details_job"]["current"] = None
     STATE["details_job"]["status"] = "done"
+
+
+@app.post("/api/extract-details/cancel")
+def extract_details_cancel():
+    if STATE["details_job"]["status"] == "running":
+        STATE["details_job"]["cancel_requested"] = True
+    return STATE["details_job"]
 
 
 @app.post("/api/extract-details")
@@ -346,8 +377,12 @@ def details_progress():
 
 
 def _run_refine(paths: list[str]):
-    STATE["refine_job"] = {"status": "running", "done": 0, "total": len(paths), "current": None}
+    STATE["refine_job"] = {"status": "running", "done": 0, "total": len(paths), "current": None, "cancel_requested": False}
     for path in paths:
+        if STATE["refine_job"]["cancel_requested"]:
+            STATE["refine_job"]["status"] = "cancelled"
+            STATE["refine_job"]["current"] = None
+            return
         item = STATE["results"].get(path)
         if item is None or "error" in item:
             STATE["refine_job"]["done"] += 1
@@ -360,6 +395,13 @@ def _run_refine(paths: list[str]):
         STATE["refine_job"]["done"] += 1
     STATE["refine_job"]["current"] = None
     STATE["refine_job"]["status"] = "done"
+
+
+@app.post("/api/refine/cancel")
+def refine_cancel():
+    if STATE["refine_job"]["status"] == "running":
+        STATE["refine_job"]["cancel_requested"] = True
+    return STATE["refine_job"]
 
 
 @app.post("/api/refine")
@@ -409,10 +451,11 @@ def get_gallery(folder: str):
 
 
 def _run_backfill(folder: str, paths: list[str]):
-    STATE["backfill_job"] = {"status": "running", "done": 0, "total": 0, "current": None}
+    STATE["backfill_job"] = {"status": "running", "done": 0, "total": 0, "current": None, "cancel_requested": False}
     try:
         gallery_module.backfill_details(folder, paths, progress=STATE["backfill_job"])
-        STATE["backfill_job"]["status"] = "done"
+        if STATE["backfill_job"]["status"] == "running":
+            STATE["backfill_job"]["status"] = "done"
     except Exception as e:
         STATE["backfill_job"] = {"status": "error", "done": 0, "total": 0, "current": str(e)}
 
@@ -429,7 +472,7 @@ def gallery_backfill(req: BackfillRequest):
             paths = [i["path"] for i in items if not i.get("details")]
         if not paths:
             raise HTTPException(400, "Rien à compléter")
-        STATE["backfill_job"] = {"status": "running", "done": 0, "total": len(paths), "current": None}
+        STATE["backfill_job"] = {"status": "running", "done": 0, "total": len(paths), "current": None, "cancel_requested": False}
 
     thread = threading.Thread(target=_run_backfill, args=(req.folder, paths), daemon=True)
     thread.start()
@@ -441,11 +484,19 @@ def gallery_backfill_progress():
     return STATE["backfill_job"]
 
 
+@app.post("/api/gallery/backfill/cancel")
+def gallery_backfill_cancel():
+    if STATE["backfill_job"]["status"] == "running":
+        STATE["backfill_job"]["cancel_requested"] = True
+    return STATE["backfill_job"]
+
+
 def _run_refine_gallery(folder: str, paths: list[str]):
-    STATE["refine_gallery_job"] = {"status": "running", "done": 0, "total": len(paths), "current": None}
+    STATE["refine_gallery_job"] = {"status": "running", "done": 0, "total": len(paths), "current": None, "cancel_requested": False}
     try:
         gallery_module.refine_attributes_for(folder, paths, progress=STATE["refine_gallery_job"])
-        STATE["refine_gallery_job"]["status"] = "done"
+        if STATE["refine_gallery_job"]["status"] == "running":
+            STATE["refine_gallery_job"]["status"] = "done"
     except Exception as e:
         STATE["refine_gallery_job"] = {"status": "error", "done": 0, "total": 0, "current": str(e)}
 
@@ -457,7 +508,7 @@ def gallery_refine(req: RefineRequest):
             raise HTTPException(409, "Un réaffinage est déjà en cours")
         if not req.paths:
             raise HTTPException(400, "Rien à réaffiner")
-        STATE["refine_gallery_job"] = {"status": "running", "done": 0, "total": len(req.paths), "current": None}
+        STATE["refine_gallery_job"] = {"status": "running", "done": 0, "total": len(req.paths), "current": None, "cancel_requested": False}
 
     thread = threading.Thread(target=_run_refine_gallery, args=(req.folder, req.paths), daemon=True)
     thread.start()
@@ -466,6 +517,13 @@ def gallery_refine(req: RefineRequest):
 
 @app.get("/api/gallery/refine-progress")
 def gallery_refine_progress():
+    return STATE["refine_gallery_job"]
+
+
+@app.post("/api/gallery/refine/cancel")
+def gallery_refine_cancel():
+    if STATE["refine_gallery_job"]["status"] == "running":
+        STATE["refine_gallery_job"]["cancel_requested"] = True
     return STATE["refine_gallery_job"]
 
 
@@ -530,15 +588,16 @@ def renegat_publish(req: RenegatPublishRequest):
 
 
 def _run_dedupe(folder: str, threshold: float, category: str | None):
-    STATE["dedupe_job"] = {"status": "running", "done": 0, "total": 0, "phase": "scan"}
+    STATE["dedupe_job"] = {"status": "running", "done": 0, "total": 0, "phase": "scan", "cancel_requested": False}
     try:
         items = gallery_module.list_gallery(folder)
         if category:
             items = [i for i in items if i["category_label"] == category]
         files = [Path(i["path"]) for i in items]
         groups = dedupe_module.find_duplicate_groups(files, threshold, progress=STATE["dedupe_job"])
-        STATE["dedupe_groups"] = groups
-        STATE["dedupe_job"]["status"] = "done"
+        if STATE["dedupe_job"]["status"] == "running":
+            STATE["dedupe_groups"] = groups
+            STATE["dedupe_job"]["status"] = "done"
     except Exception as e:
         STATE["dedupe_job"] = {"status": "error", "done": 0, "total": 0, "phase": str(e)}
 
@@ -548,11 +607,18 @@ def dedupe(req: DedupeRequest):
     with STATE["dedupe_job_lock"]:
         if STATE["dedupe_job"]["status"] == "running":
             raise HTTPException(409, "Une détection de doublons est déjà en cours")
-        STATE["dedupe_job"] = {"status": "running", "done": 0, "total": 0, "phase": "scan"}
+        STATE["dedupe_job"] = {"status": "running", "done": 0, "total": 0, "phase": "scan", "cancel_requested": False}
 
     thread = threading.Thread(target=_run_dedupe, args=(req.folder, req.threshold, req.category), daemon=True)
     thread.start()
     return {"started": True}
+
+
+@app.post("/api/dedupe/cancel")
+def dedupe_cancel():
+    if STATE["dedupe_job"]["status"] == "running":
+        STATE["dedupe_job"]["cancel_requested"] = True
+    return STATE["dedupe_job"]
 
 
 @app.get("/api/dedupe-progress")

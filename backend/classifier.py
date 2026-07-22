@@ -59,9 +59,15 @@ def image_embedding(path, mtime: float, size: int) -> np.ndarray:
     return emb
 
 
-def batch_image_embeddings(paths_with_stat: list[tuple], batch_size: int = 64):
+class Cancelled(Exception):
+    """Levée par batch_image_embeddings quand cancel_check() devient vrai
+    entre deux lots — laisse l'appelant décider comment marquer le job."""
+
+
+def batch_image_embeddings(paths_with_stat: list[tuple], batch_size: int = 64, cancel_check=None):
     """paths_with_stat: list of (path, mtime, size). Yields (path, embedding) pairs,
-    using cache where possible and running uncached ones through the model in batches."""
+    using cache where possible and running uncached ones through the model in batches.
+    `cancel_check`, si fourni, est interrogé entre deux lots — lève Cancelled si vrai."""
     _load_model()
     results: dict[str, np.ndarray] = {}
     to_compute = []
@@ -74,6 +80,8 @@ def batch_image_embeddings(paths_with_stat: list[tuple], batch_size: int = 64):
             to_compute.append((path, mtime, size))
 
     for i in range(0, len(to_compute), batch_size):
+        if cancel_check is not None and cancel_check():
+            raise Cancelled()
         chunk = to_compute[i : i + batch_size]
         tensors = []
         valid = []
