@@ -1561,33 +1561,55 @@ let rectaItemsByPath = new Map();
 // session : un placeholder ressemble à une valeur mais n'en est pas une).
 rectaFolderEl.value = localStorage.getItem(GAL_FOLDER_STORAGE_KEY) || CANONICAL_EXPORT_DIR;
 
-function rectaMakeCard(item) {
-  const card = document.createElement("div");
-  card.className = "thumb";
+function rectaMakeEntry(item) {
+  const rp = item.renegat_posted;
+  const d = new Date(rp.timestamp);
 
-  const imgWrap = document.createElement("div");
-  imgWrap.className = "thumb-img";
+  const entry = document.createElement("div");
+  entry.className = "recta-entry";
+
+  const thumb = document.createElement("div");
+  thumb.className = "recta-entry-thumb";
   const img = document.createElement("img");
   img.loading = "lazy";
   img.src = "/api/thumbnail?path=" + encodeURIComponent(item.path);
-  imgWrap.appendChild(img);
+  thumb.appendChild(img);
 
-  const foot = document.createElement("div");
-  foot.className = "thumb-foot";
-  const dot = document.createElement("span");
-  dot.className = "status-dot detailed";
-  const cat = document.createElement("span");
-  cat.className = "thumb-cat";
-  const d = new Date(item.renegat_posted.timestamp);
-  cat.textContent = `#${item.renegat_posted.numero} · ${d.toLocaleDateString()}`;
-  foot.appendChild(dot);
-  foot.appendChild(cat);
+  const body = document.createElement("div");
+  body.className = "recta-entry-body";
 
-  card.appendChild(imgWrap);
-  card.appendChild(foot);
-  card.addEventListener("click", () => rectaSelectImage(item.path));
-  card.addEventListener("dblclick", () => openLightbox(item.path));
-  return card;
+  const head = document.createElement("div");
+  head.className = "recta-entry-head";
+  head.innerHTML = `<span class="recta-entry-numero">#${rp.numero}</span>`
+    + `<span>${d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>`
+    + `<span>${item.category_label || ""}</span>`;
+
+  const name = document.createElement("div");
+  name.className = "recta-entry-name";
+  name.textContent = item.path.split("/").pop();
+
+  const nets = document.createElement("div");
+  nets.className = "recta-entry-networks";
+  for (const r of rp.results || []) {
+    const badge = document.createElement("span");
+    badge.className = "recta-net " + (r.ok ? "ok" : "fail");
+    badge.textContent = (r.ok ? "✓ " : "✗ ") + r.network;
+    nets.appendChild(badge);
+  }
+
+  body.appendChild(head);
+  body.appendChild(name);
+  body.appendChild(nets);
+  entry.appendChild(thumb);
+  entry.appendChild(body);
+
+  entry.addEventListener("click", () => {
+    document.querySelectorAll(".recta-entry.selected").forEach(e => e.classList.remove("selected"));
+    entry.classList.add("selected");
+    rectaSelectImage(item.path);
+  });
+  entry.addEventListener("dblclick", () => openLightbox(item.path));
+  return entry;
 }
 
 function rectaSelectImage(path) {
@@ -1624,7 +1646,21 @@ rectaLoadBtn.addEventListener("click", async () => {
     rectaItemsByPath = new Map(posted.map(i => [i.path, i]));
     rectaGridEl.innerHTML = "";
     rectaInspBody.hidden = true; rectaInspEmpty.hidden = false;
-    for (const item of posted) rectaGridEl.appendChild(rectaMakeCard(item));
+
+    let lastDay = null;
+    for (const item of posted) {
+      const day = new Date(item.renegat_posted.timestamp).toLocaleDateString([], {
+        weekday: "long", day: "numeric", month: "long",
+      });
+      if (day !== lastDay) {
+        const dayEl = document.createElement("div");
+        dayEl.className = "recta-day";
+        dayEl.textContent = day;
+        rectaGridEl.appendChild(dayEl);
+        lastDay = day;
+      }
+      rectaGridEl.appendChild(rectaMakeEntry(item));
+    }
     rectaEmptyEl.style.display = posted.length ? "none" : "";
     rectaCountsEl.textContent = `${posted.length} publiée${posted.length > 1 ? "s" : ""} / ${data.items.length} au total`;
   } finally {
