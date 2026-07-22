@@ -144,12 +144,24 @@ def classify_scores(embedding: np.ndarray, categories: list[dict], text_feats: t
 
 
 def detect_color_mode(path) -> str:
-    """Returns 'NB' or 'Couleur' without any model, purely from pixel data."""
+    """Returns 'NB' or 'Couleur' without any model, purely from pixel data.
+    Ignore les pixels quasi-blancs/quasi-noirs pour la moyenne de saturation :
+    un fond blanc à 50% (très courant sur ces illustrations IA) dilue la
+    saturation moyenne et fait passer sous le seuil un sujet pourtant bien
+    coloré (bug vécu : personnage en veste camo + accents rouges classé NB
+    à cause du fond blanc). Repli sur la moyenne globale si le sujet est trop
+    petit pour laisser assez de pixels "informatifs" (ex: logo sur fond noir)."""
     img = Image.open(path).convert("RGB")
     img.thumbnail((64, 64))
     hsv = img.convert("HSV")
-    _, s, _ = hsv.split()
-    mean_sat = np.array(s, dtype=np.float32).mean()
+    _, s, v = hsv.split()
+    sat = np.array(s, dtype=np.float32)
+    val = np.array(v, dtype=np.float32)
+    informative = (val > 25) & (val < 235)
+    if informative.sum() >= sat.size * 0.05:
+        mean_sat = sat[informative].mean()
+    else:
+        mean_sat = sat.mean()
     return "NB" if mean_sat < 15 else "Couleur"
 
 
