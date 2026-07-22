@@ -603,6 +603,18 @@ function galMatchesSearch(item, needle) {
   return haystack.includes(needle);
 }
 
+// Filtres d'attributs actifs (passe 3) — combinés en ET avec la catégorie et
+// la recherche texte. Chaque filtre = {label, value} exact (choisi dans un
+// menu déroulant peuplé depuis les valeurs réellement présentes).
+let galAttrFilters = [];
+
+function galMatchesAttrFilters(item) {
+  if (!galAttrFilters.length) return true;
+  return galAttrFilters.every(f =>
+    (item.attributes || []).some(a => a.label === f.label && a.value === f.value)
+  );
+}
+
 function galApplyFilters() {
   const needle = galSearchEl.value.trim().toLowerCase();
   let shown = 0;
@@ -610,7 +622,8 @@ function galApplyFilters() {
     const card = galCardByPath.get(item.path);
     const catOk = !galActiveCat || item.category_label === galActiveCat;
     const searchOk = galMatchesSearch(item, needle);
-    const show = catOk && searchOk;
+    const attrOk = galMatchesAttrFilters(item);
+    const show = catOk && searchOk && attrOk;
     card.style.display = show ? "" : "none";
     if (show) shown++;
   }
@@ -644,6 +657,17 @@ function galMakeCard(item) {
 
   card.appendChild(imgWrap);
   card.appendChild(foot);
+
+  // Attributs passe 3 visibles sans avoir à cliquer chaque vignette — ligne
+  // compacte (valeurs seules) + tooltip natif avec le détail label:valeur.
+  if (item.attributes && item.attributes.length) {
+    const attrsLine = document.createElement("div");
+    attrsLine.className = "thumb-attrs";
+    attrsLine.textContent = item.attributes.map(a => a.value).join(" · ");
+    card.title = item.attributes.map(a => `${a.label} : ${a.value}`).join("\n");
+    card.appendChild(attrsLine);
+  }
+
   card.addEventListener("click", () => galSelectImage(item.path));
   card.addEventListener("dblclick", () => openLightbox(item.path));
   return card;
@@ -737,6 +761,9 @@ async function galLoad() {
     galFilterCatEl.innerHTML = '<option value="">Toutes catégories</option>'
       + cats.map(c => `<option value="${c}">${c}</option>`).join("");
     galActiveCat = "";
+    galAttrFilters = [];
+    galRebuildAttrLabelOptions();
+    galRenderAttrChips();
 
     for (const item of galItems) {
       const card = galMakeCard(item);
@@ -750,6 +777,56 @@ async function galLoad() {
   }
 }
 galLoadBtn.addEventListener("click", galLoad);
+
+// ---------- Filtres par attribut structuré (passe 3) ----------
+const galAttrLabelEl = $("galAttrLabel");
+const galAttrValueEl = $("galAttrValue");
+const galAttrAddBtn = $("galAttrAddBtn");
+const galAttrChipsEl = $("galAttrChips");
+
+function galRebuildAttrLabelOptions() {
+  const labels = [...new Set(
+    galItems.flatMap(i => (i.attributes || []).map(a => a.label))
+  )].sort();
+  galAttrLabelEl.innerHTML = labels.map(l => `<option value="${l}">${l}</option>`).join("");
+  galRebuildAttrValueOptions();
+}
+
+function galRebuildAttrValueOptions() {
+  const label = galAttrLabelEl.value;
+  const values = [...new Set(
+    galItems.flatMap(i => (i.attributes || []).filter(a => a.label === label).map(a => a.value))
+  )].sort();
+  galAttrValueEl.innerHTML = values.map(v => `<option value="${v}">${v}</option>`).join("");
+}
+galAttrLabelEl.addEventListener("change", galRebuildAttrValueOptions);
+
+function galRenderAttrChips() {
+  galAttrChipsEl.innerHTML = "";
+  galAttrFilters.forEach((f, idx) => {
+    const chip = document.createElement("span");
+    chip.className = "chip";
+    chip.innerHTML = `${f.label} : <b>${f.value}</b> ✕`;
+    chip.style.cursor = "pointer";
+    chip.title = "Retirer ce filtre";
+    chip.addEventListener("click", () => {
+      galAttrFilters.splice(idx, 1);
+      galRenderAttrChips();
+      galApplyFilters();
+    });
+    galAttrChipsEl.appendChild(chip);
+  });
+}
+
+galAttrAddBtn.addEventListener("click", () => {
+  const label = galAttrLabelEl.value;
+  const value = galAttrValueEl.value;
+  if (!label || !value) return;
+  if (galAttrFilters.some(f => f.label === label && f.value === value)) return; // déjà présent
+  galAttrFilters.push({ label, value });
+  galRenderAttrChips();
+  galApplyFilters();
+});
 galFilterCatEl.addEventListener("change", () => { galActiveCat = galFilterCatEl.value; galApplyFilters(); });
 galSearchEl.addEventListener("input", () => galApplyFilters());
 

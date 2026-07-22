@@ -254,6 +254,14 @@ textarea { resize: vertical; }
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.thumb-attrs {
+  font-size: 10px;
+  color: var(--faint);
+  padding: 0 8px 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 /* Barre de progression individuelle (image en cours de traitement) */
 .thumb.processing { border-color: var(--warn); }
 .thumb-progress {
