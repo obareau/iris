@@ -172,3 +172,35 @@ def backfill_details(folder: str, paths: list[str], progress: dict | None = None
             progress["done"] += 1
     if progress is not None:
         progress["current"] = None
+
+
+def refine_attributes_for(folder: str, paths: list[str], progress: dict | None = None) -> None:
+    """Force une repasse de passe 3 (attributs) sur des photos DÉJÀ classées
+    et déjà documentées — utile quand ATTRIBUTE_SCHEMAS gagne une clé (ex:
+    Pose/posture) après coup : backfill_details() saute les photos qui ont
+    déjà des attributs, celle-ci les réaffine quand même et écrase le champ."""
+    root = Path(folder)
+    if progress is not None:
+        progress["total"] = len(paths)
+        progress["done"] = 0
+
+    for path_str in paths:
+        path = Path(path_str)
+        if progress is not None:
+            progress["current"] = path_str
+        try:
+            existing = json.loads(path.with_suffix(".json").read_text()) if path.with_suffix(".json").is_file() else {}
+            rel_parts = path.relative_to(root).parts
+            fallback_category = rel_parts[0] if len(rel_parts) > 1 else "?"
+            category_slug = existing.get("category_slug") or _LABEL_TO_SLUG.get(
+                existing.get("category_label") or fallback_category, "autre"
+            )
+            existing["attributes"] = details_module.refine_attributes(path, category_slug)
+            _write_sidecar(path, existing)
+        except Exception as e:
+            if progress is not None:
+                progress.setdefault("errors", []).append({"path": path_str, "error": str(e)})
+        if progress is not None:
+            progress["done"] += 1
+    if progress is not None:
+        progress["current"] = None

@@ -42,6 +42,8 @@ STATE = {
     "dedupe_groups": [],
     "backfill_job": {"status": "idle", "done": 0, "total": 0, "current": None},
     "backfill_job_lock": threading.Lock(),
+    "refine_gallery_job": {"status": "idle", "done": 0, "total": 0, "current": None},
+    "refine_gallery_job_lock": threading.Lock(),
 }
 
 
@@ -98,6 +100,11 @@ class DiscardRequest(BaseModel):
 class BackfillRequest(BaseModel):
     folder: str
     paths: list[str] | None = None  # si None : toutes les images du dossier sans détails
+
+
+class RefineRequest(BaseModel):
+    folder: str
+    paths: list[str]
 
 
 class RatingRequest(BaseModel):
@@ -432,6 +439,34 @@ def gallery_backfill(req: BackfillRequest):
 @app.get("/api/gallery/backfill-progress")
 def gallery_backfill_progress():
     return STATE["backfill_job"]
+
+
+def _run_refine_gallery(folder: str, paths: list[str]):
+    STATE["refine_gallery_job"] = {"status": "running", "done": 0, "total": len(paths), "current": None}
+    try:
+        gallery_module.refine_attributes_for(folder, paths, progress=STATE["refine_gallery_job"])
+        STATE["refine_gallery_job"]["status"] = "done"
+    except Exception as e:
+        STATE["refine_gallery_job"] = {"status": "error", "done": 0, "total": 0, "current": str(e)}
+
+
+@app.post("/api/gallery/refine")
+def gallery_refine(req: RefineRequest):
+    with STATE["refine_gallery_job_lock"]:
+        if STATE["refine_gallery_job"]["status"] == "running":
+            raise HTTPException(409, "Un réaffinage est déjà en cours")
+        if not req.paths:
+            raise HTTPException(400, "Rien à réaffiner")
+        STATE["refine_gallery_job"] = {"status": "running", "done": 0, "total": len(req.paths), "current": None}
+
+    thread = threading.Thread(target=_run_refine_gallery, args=(req.folder, req.paths), daemon=True)
+    thread.start()
+    return {"started": True, "total": len(req.paths)}
+
+
+@app.get("/api/gallery/refine-progress")
+def gallery_refine_progress():
+    return STATE["refine_gallery_job"]
 
 
 @app.post("/api/gallery/rating")

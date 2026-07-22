@@ -1035,6 +1035,8 @@ const galBulkCount = $("galBulkCount");
 const galBulkClearBtn = $("galBulkClearBtn");
 const galBulkStars = $("galBulkStars");
 const galBulkDeleteBtn = $("galBulkDeleteBtn");
+const galBulkRefineBtn = $("galBulkRefineBtn");
+const galSelectAllBtn = $("galSelectAllBtn");
 
 let galSelectedPaths = new Set();
 
@@ -1063,6 +1065,16 @@ function galClearSelection() {
   galUpdateBulkBar();
 }
 galBulkClearBtn.addEventListener("click", galClearSelection);
+
+galSelectAllBtn.addEventListener("click", () => {
+  for (const item of galItems) {
+    const card = galCardByPath.get(item.path);
+    if (card.style.display === "none") continue; // respecte le filtre affiché
+    const cb = card.querySelector(".thumb-select");
+    if (cb && !cb.checked) { cb.checked = true; galSelectedPaths.add(item.path); }
+  }
+  galUpdateBulkBar();
+});
 
 galBulkStars.querySelectorAll("span").forEach(s => {
   s.addEventListener("click", async () => {
@@ -1117,6 +1129,57 @@ galBulkDeleteBtn.addEventListener("click", async () => {
   } finally {
     galBulkDeleteBtn.disabled = false;
   }
+});
+
+async function galRefinePoll() {
+  const pRes = await fetch("/api/gallery/refine-progress").then(r => r.json());
+  galBulkRefineBtn.textContent = pRes.total
+    ? `Réaffinage… ${pRes.done} / ${pRes.total}`
+    : "Réaffinage…";
+  if (pRes.status === "running") { setTimeout(galRefinePoll, 700); return; }
+  galBulkRefineBtn.disabled = false;
+  galBulkRefineBtn.textContent = "Réaffiner les attributs (passe 3)";
+  if (pRes.status === "error") { alert("Erreur : " + pRes.current); return; }
+  // Recharge les attributs à jour pour les photos concernées sans tout recharger.
+  const paths = [...galSelectedPaths];
+  const items = await Promise.all(paths.map(p =>
+    fetch("/api/gallery/item?path=" + encodeURIComponent(p)).then(r => r.ok ? r.json() : null)
+  ));
+  for (const it of items) {
+    if (!it) continue;
+    Object.assign(galItemsByPath.get(it.path), it);
+  }
+  if (galSelectedPath && paths.includes(galSelectedPath)) {
+    galRenderInspector(galItemsByPath.get(galSelectedPath));
+  }
+  // Remplace les cartes affectées pour rafraîchir la ligne d'attributs visible.
+  for (const path of paths) {
+    const old = galCardByPath.get(path);
+    if (!old) continue;
+    const fresh = galMakeCard(galItemsByPath.get(path));
+    fresh.querySelector(".thumb-select").checked = true;
+    old.replaceWith(fresh);
+    galCardByPath.set(path, fresh);
+  }
+}
+
+galBulkRefineBtn.addEventListener("click", async () => {
+  const paths = [...galSelectedPaths];
+  if (!paths.length) return;
+  if (!confirm(`Relancer la passe 3 (attributs) sur ${paths.length} photo(s) — écrase leurs attributs actuels ?`)) return;
+  galBulkRefineBtn.disabled = true;
+  galBulkRefineBtn.textContent = "Réaffinage…";
+  const res = await fetch("/api/gallery/refine", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ folder: galFolderEl.value.trim(), paths }),
+  });
+  if (!res.ok) {
+    alert("Erreur : " + (await res.text()));
+    galBulkRefineBtn.disabled = false;
+    galBulkRefineBtn.textContent = "Réaffiner les attributs (passe 3)";
+    return;
+  }
+  galRefinePoll();
 });
 
 // ---------- Doublons / images similaires ----------
