@@ -224,6 +224,7 @@ textarea { resize: vertical; }
 .thumb:hover { border-color: var(--faint); }
 .thumb.selected { border-color: var(--accent); }
 .thumb-img {
+  position: relative;
   aspect-ratio: 1 / 1;
   background: #e4e6ea;
   overflow: hidden;
@@ -232,6 +233,15 @@ textarea { resize: vertical; }
   width: 100%; height: 100%;
   object-fit: cover;
   display: block;
+}
+.thumb-select {
+  position: absolute;
+  top: 6px; left: 6px;
+  width: 18px; height: 18px;
+  z-index: 2;
+  accent-color: var(--accent);
+  cursor: pointer;
+  filter: drop-shadow(0 0 2px rgba(0,0,0,0.6));
 }
 .thumb-foot {
   display: flex;

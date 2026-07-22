@@ -648,6 +648,15 @@ function galMakeCard(item) {
   img.src = "/api/thumbnail?path=" + encodeURIComponent(item.path);
   imgWrap.appendChild(img);
 
+  const checkbox = document.createElement("input");
+  checkbox.type = "checkbox";
+  checkbox.className = "thumb-select";
+  checkbox.addEventListener("click", (e) => {
+    e.stopPropagation();
+    galToggleSelect(item.path, checkbox.checked);
+  });
+  imgWrap.appendChild(checkbox);
+
   const foot = document.createElement("div");
   foot.className = "thumb-foot";
   const dot = document.createElement("span");
@@ -762,6 +771,8 @@ async function galLoad() {
     galCardByPath = new Map();
     galGridEl.innerHTML = "";
     galSelectedPath = null;
+    galSelectedPaths = new Set();
+    galUpdateBulkBar();
     galInspBody.hidden = true; galInspEmpty.hidden = false;
 
     const cats = [...new Set(galItems.map(i => i.category_label).filter(Boolean))].sort();
@@ -1015,6 +1026,96 @@ galDeleteBtn.addEventListener("click", async () => {
     galApplyFilters();
   } finally {
     galDeleteBtn.disabled = false;
+  }
+});
+
+// ---------- Sélection multiple (utile sur un gros lot fraîchement importé) ----------
+const galBulkBar = $("galBulkBar");
+const galBulkCount = $("galBulkCount");
+const galBulkClearBtn = $("galBulkClearBtn");
+const galBulkStars = $("galBulkStars");
+const galBulkDeleteBtn = $("galBulkDeleteBtn");
+
+let galSelectedPaths = new Set();
+
+function galUpdateBulkBar() {
+  const n = galSelectedPaths.size;
+  // `.grid-toolbar{display:flex}` bat [hidden] en spécificité égale (déjà
+  // rencontré pour le switch d'onglets) — piloter display directement.
+  galBulkBar.style.display = n === 0 ? "none" : "flex";
+  galBulkCount.textContent = n ? `${n} sélectionnée${n > 1 ? "s" : ""}` : "";
+}
+galUpdateBulkBar(); // état initial correct dès le chargement du script
+
+function galToggleSelect(path, checked) {
+  if (checked) galSelectedPaths.add(path);
+  else galSelectedPaths.delete(path);
+  galUpdateBulkBar();
+}
+
+function galClearSelection() {
+  for (const path of galSelectedPaths) {
+    const card = galCardByPath.get(path);
+    const cb = card?.querySelector(".thumb-select");
+    if (cb) cb.checked = false;
+  }
+  galSelectedPaths.clear();
+  galUpdateBulkBar();
+}
+galBulkClearBtn.addEventListener("click", galClearSelection);
+
+galBulkStars.querySelectorAll("span").forEach(s => {
+  s.addEventListener("click", async () => {
+    const rating = parseInt(s.dataset.star, 10);
+    const paths = [...galSelectedPaths];
+    if (!paths.length) return;
+    galBulkStars.style.pointerEvents = "none";
+    try {
+      await Promise.all(paths.map(path =>
+        fetch("/api/gallery/rating", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ path, rating }),
+        }).then(res => { if (res.ok) galItemsByPath.get(path).rating = rating; })
+      ));
+      if (galSelectedPath && paths.includes(galSelectedPath)) {
+        galRenderInspector(galItemsByPath.get(galSelectedPath));
+      }
+    } finally {
+      galBulkStars.style.pointerEvents = "";
+    }
+  });
+});
+
+galBulkDeleteBtn.addEventListener("click", async () => {
+  const paths = [...galSelectedPaths];
+  if (!paths.length) return;
+  if (!confirm(`Déplacer ${paths.length} photo(s) vers la corbeille (~/.iris-trash) ?`)) return;
+  galBulkDeleteBtn.disabled = true;
+  try {
+    const results = await Promise.all(paths.map(path =>
+      fetch("/api/dedupe/discard", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path }),
+      }).then(res => ({ path, ok: res.ok }))
+    ));
+    for (const { path, ok } of results) {
+      if (!ok) continue;
+      galCardByPath.get(path)?.remove();
+      galCardByPath.delete(path);
+      galItemsByPath.delete(path);
+      galSelectedPaths.delete(path);
+    }
+    galItems = galItems.filter(i => galItemsByPath.has(i.path));
+    if (galSelectedPath && !galItemsByPath.has(galSelectedPath)) {
+      galSelectedPath = null;
+      galInspBody.hidden = true; galInspEmpty.hidden = false;
+    }
+    const failed = results.filter(r => !r.ok).length;
+    if (failed) alert(`${failed} suppression(s) ont échoué.`);
+    galUpdateBulkBar();
+    galApplyFilters();
+  } finally {
+    galBulkDeleteBtn.disabled = false;
   }
 });
 
