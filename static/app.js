@@ -469,6 +469,129 @@ async function pollRefine() {
   }
 }
 
+// ---------- Pipeline complet (analyse → détails → attributs → applique) ----------
+const pipelineBtn = $("pipelineBtn");
+const pipelineCancelBtn = $("pipelineCancelBtn");
+const pipelineStatusEl = $("pipelineStatus");
+
+/** Démarre un job (POST) puis attend qu'il quitte l'état "running" en
+ * réinterrogeant sa progress-route — factorise ce que chaque bouton
+ * (analyzeBtn/detailsBtn/refineBtn) fait déjà séparément, pour les enchaîner
+ * sans dupliquer leur logique de poll respective. */
+async function pipelineRunStep(label, startUrl, startBody, progressUrl, onProgress) {
+  pipelineStatusEl.textContent = label + "…";
+  const res = await fetch(startUrl, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(startBody || {}),
+  });
+  if (!res.ok) throw new Error(`${label} : ` + (await res.text()));
+  while (true) {
+    const pRes = await fetch(progressUrl).then(r => r.json());
+    const items = await fetchResults();
+    mergeResults(items);
+    onProgress(pRes);
+    if (pRes.status !== "running") {
+      if (pRes.status === "cancelled") throw new Error(`${label} annulé`);
+      if (pRes.status === "error") throw new Error(`${label} : ` + (pRes.phase || pRes.current || "échec"));
+      return pRes;
+    }
+    await new Promise(r => setTimeout(r, 700));
+  }
+}
+
+pipelineCancelBtn.addEventListener("click", () => {
+  // On ne sait pas forcément quelle étape tourne au moment du clic —
+  // annuler les trois est sans risque, les jobs inactifs répondent en no-op.
+  fetch("/api/analyze/cancel", { method: "POST" });
+  fetch("/api/extract-details/cancel", { method: "POST" });
+  fetch("/api/refine/cancel", { method: "POST" });
+});
+
+pipelineBtn.addEventListener("click", async () => {
+  const folder = folderEl.value.trim();
+  const dest = destEl.value.trim();
+  if (!folder) { alert("Indique un dossier source."); return; }
+  if (!dest) { alert("Indique un dossier destination."); return; }
+
+  pipelineBtn.disabled = true;
+  pipelineCancelBtn.hidden = false;
+  analyzeBtn.disabled = true; detailsBtn.disabled = true; refineBtn.disabled = true; applyBtn.disabled = true;
+
+  itemsByPath.clear(); order = []; cardByPath.clear();
+  gridEl.innerHTML = ""; selectedPath = null;
+  inspBody.hidden = true; inspEmpty.hidden = false;
+  lastScrolledPath = null;
+  currentCategories = parseCategories();
+  rebuildFilterOptions();
+
+  try {
+    await pipelineRunStep(
+      "Analyse (passe 1)", "/api/analyze", { folder, categories: currentCategories }, "/api/progress",
+      (p) => {
+        updateGlobal(`Analyse (${p.phase === "clip" ? "CLIP" : "YOLO"})`, p.done, p.total);
+        analyzeCount.textContent = `${p.done} / ${p.total}`;
+        setBar(analyzeFill, p.done, p.total);
+        markProcessing(p.current);
+      }
+    );
+    clearProcessing();
+    analyzeFill.classList.add("done");
+
+    if (order.length === 0) {
+      pipelineStatusEl.textContent = "Aucune image trouvée — rien à faire.";
+      return;
+    }
+
+    await pipelineRunStep(
+      "Extraction des détails (passe 2)", "/api/extract-details", {}, "/api/details-progress",
+      (p) => {
+        updateGlobal("Extraction des détails", p.done, p.total);
+        detailsCount.textContent = `${p.done} / ${p.total}`;
+        setBar(detailsFill, p.done, p.total);
+        markProcessing(p.current);
+      }
+    );
+    clearProcessing();
+    detailsFill.classList.add("done");
+
+    await pipelineRunStep(
+      "Affinage des attributs (passe 3)", "/api/refine", {}, "/api/refine-progress",
+      (p) => {
+        updateGlobal("Affinage des attributs", p.done, p.total);
+        refineCount.textContent = `${p.done} / ${p.total}`;
+        setBar(refineFill, p.done, p.total);
+        markProcessing(p.current);
+      }
+    );
+    clearProcessing();
+    refineFill.classList.add("done");
+
+    pipelineStatusEl.textContent = "Application du tri…";
+    const applyRes = await fetch("/api/apply", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ dest_root: dest }),
+    });
+    const applyData = await applyRes.json();
+    pipelineStatusEl.textContent = `Terminé — ${applyData.moved} image(s) classée(s) et déplacée(s)`
+      + (applyData.errors?.length ? ` · ${applyData.errors.length} erreur(s)` : "");
+
+    itemsByPath.clear(); order = []; cardByPath.clear();
+    gridEl.innerHTML = ""; selectedPath = null;
+    inspBody.hidden = true; inspEmpty.hidden = false;
+    syncGrid();
+    updateGlobal("Prêt", 0, 0);
+  } catch (e) {
+    pipelineStatusEl.textContent = "Arrêté : " + e.message;
+  } finally {
+    pipelineBtn.disabled = false;
+    pipelineCancelBtn.hidden = true;
+    analyzeBtn.disabled = false;
+    detailsBtn.disabled = order.length === 0;
+    refineBtn.disabled = order.length === 0;
+    applyBtn.disabled = order.length === 0;
+  }
+});
+
 // ---------- Application / annulation ----------
 applyBtn.addEventListener("click", async () => {
   const dest = destEl.value.trim();
