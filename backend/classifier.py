@@ -136,7 +136,7 @@ def classify_scores(embedding: np.ndarray, categories: list[dict], text_feats: t
     sims = (emb_t @ text_feats.T).squeeze(0)
     probs = torch.softmax(sims * 100, dim=0)
     pairs = [
-        {"label": categories[i]["label"], "prob": round(float(probs[i].item()), 3)}
+        {"slug": categories[i]["slug"], "label": categories[i]["label"], "prob": round(float(probs[i].item()), 3)}
         for i in range(len(categories))
     ]
     pairs.sort(key=lambda x: -x["prob"])

@@ -48,6 +48,8 @@ STATE = {
     "refine_gallery_job_lock": threading.Lock(),
     "aesthetic_job": {"status": "idle", "done": 0, "total": 0, "current": None},
     "aesthetic_job_lock": threading.Lock(),
+    "canon_job": {"status": "idle", "done": 0, "total": 0, "current": None},
+    "canon_job_lock": threading.Lock(),
     "graph_job": {"status": "idle", "done": 0, "total": 0, "phase": None},
     "graph_job_lock": threading.Lock(),
     "graph_data": {"nodes": [], "edges": []},
@@ -596,6 +598,42 @@ def gallery_aesthetic_cancel():
     if STATE["aesthetic_job"]["status"] == "running":
         STATE["aesthetic_job"]["cancel_requested"] = True
     return STATE["aesthetic_job"]
+
+
+def _run_canon(folder: str, paths: list[str]):
+    STATE["canon_job"] = {"status": "running", "done": 0, "total": len(paths), "current": None, "cancel_requested": False}
+    try:
+        gallery_module.check_canon_for(folder, paths, progress=STATE["canon_job"])
+        if STATE["canon_job"]["status"] == "running":
+            STATE["canon_job"]["status"] = "done"
+    except Exception as e:
+        STATE["canon_job"] = {"status": "error", "done": 0, "total": 0, "current": str(e)}
+
+
+@app.post("/api/gallery/canon")
+def gallery_canon(req: RefineRequest):
+    with STATE["canon_job_lock"]:
+        if STATE["canon_job"]["status"] == "running":
+            raise HTTPException(409, "Une vérification de canon est déjà en cours")
+        if not req.paths:
+            raise HTTPException(400, "Rien à vérifier")
+        STATE["canon_job"] = {"status": "running", "done": 0, "total": len(req.paths), "current": None, "cancel_requested": False}
+
+    thread = threading.Thread(target=_run_canon, args=(req.folder, req.paths), daemon=True)
+    thread.start()
+    return {"started": True, "total": len(req.paths)}
+
+
+@app.get("/api/gallery/canon-progress")
+def gallery_canon_progress():
+    return STATE["canon_job"]
+
+
+@app.post("/api/gallery/canon/cancel")
+def gallery_canon_cancel():
+    if STATE["canon_job"]["status"] == "running":
+        STATE["canon_job"]["cancel_requested"] = True
+    return STATE["canon_job"]
 
 
 @app.post("/api/gallery/rating")

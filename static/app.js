@@ -717,6 +717,9 @@ const galInspImg = $("galInspImg"), galInspName = $("galInspName"), galInspCat =
 const galInspDetails = $("galInspDetails");
 const galInspAttrSection = $("galInspAttrSection"), galInspAttrs = $("galInspAttrs");
 const galInspAesthetic = $("galInspAesthetic");
+const galInspCanonSection = $("galInspCanonSection");
+const galInspCanonFaction = $("galInspCanonFaction"), galInspCanonVerdict = $("galInspCanonVerdict");
+const galInspCanonReason = $("galInspCanonReason");
 const galPostedStatus = $("galPostedStatus");
 const galRenegatBtn = $("galRenegatBtn");
 const galDeleteBtn = $("galDeleteBtn");
@@ -865,6 +868,15 @@ function galRenderInspector(item) {
   galInspAesthetic.textContent = item.aesthetic_score != null
     ? `${item.aesthetic_score} / 10 (IA)`
     : "—";
+
+  if (item.canon_reason) {
+    galInspCanonSection.hidden = false;
+    galInspCanonFaction.textContent = item.canon_faction || "Faction non reconnue";
+    galInspCanonVerdict.textContent = item.canon_verdict || "";
+    galInspCanonReason.textContent = item.canon_reason;
+  } else {
+    galInspCanonSection.hidden = true;
+  }
 
   galRenderStars(item.rating || 0);
 }
@@ -1191,6 +1203,9 @@ wireCancelBtn(galBulkRefineCancelBtn, "/api/gallery/refine/cancel");
 const galBulkAestheticBtn = $("galBulkAestheticBtn");
 const galBulkAestheticCancelBtn = $("galBulkAestheticCancelBtn");
 wireCancelBtn(galBulkAestheticCancelBtn, "/api/gallery/aesthetic/cancel");
+const galBulkCanonBtn = $("galBulkCanonBtn");
+const galBulkCanonCancelBtn = $("galBulkCanonCancelBtn");
+wireCancelBtn(galBulkCanonCancelBtn, "/api/gallery/canon/cancel");
 const galSelectAllBtn = $("galSelectAllBtn");
 
 let galSelectedPaths = new Set();
@@ -1378,6 +1393,48 @@ galBulkAestheticBtn.addEventListener("click", async () => {
     return;
   }
   galAestheticPoll();
+});
+
+async function galCanonPoll() {
+  const pRes = await fetch("/api/gallery/canon-progress").then(r => r.json());
+  galBulkCanonBtn.textContent = pRes.total
+    ? `Vérification… ${pRes.done} / ${pRes.total}`
+    : "Vérification…";
+  galBulkCanonCancelBtn.hidden = pRes.status !== "running";
+  if (pRes.status === "running") { setTimeout(galCanonPoll, 700); return; }
+  galBulkCanonBtn.disabled = false;
+  galBulkCanonBtn.textContent = "Vérifier le canon (faction)";
+  if (pRes.status === "error") { alert("Erreur : " + pRes.current); return; }
+  // Recharge la faction/verdict à jour pour les photos concernées sans tout recharger.
+  const paths = [...galSelectedPaths];
+  const items = await Promise.all(paths.map(p =>
+    fetch("/api/gallery/item?path=" + encodeURIComponent(p)).then(r => r.ok ? r.json() : null)
+  ));
+  for (const it of items) {
+    if (!it) continue;
+    Object.assign(galItemsByPath.get(it.path), it);
+  }
+  if (galSelectedPath && paths.includes(galSelectedPath)) {
+    galRenderInspector(galItemsByPath.get(galSelectedPath));
+  }
+}
+
+galBulkCanonBtn.addEventListener("click", async () => {
+  const paths = [...galSelectedPaths];
+  if (!paths.length) return;
+  galBulkCanonBtn.disabled = true;
+  galBulkCanonBtn.textContent = "Vérification…";
+  const res = await fetch("/api/gallery/canon", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ folder: galFolderEl.value.trim(), paths }),
+  });
+  if (!res.ok) {
+    alert("Erreur : " + (await res.text()));
+    galBulkCanonBtn.disabled = false;
+    galBulkCanonBtn.textContent = "Vérifier le canon (faction)";
+    return;
+  }
+  galCanonPoll();
 });
 
 // ---------- Doublons / images similaires ----------

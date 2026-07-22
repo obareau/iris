@@ -92,6 +92,14 @@ def _ask(image: Image.Image, question: str, max_new_tokens: int = 48) -> str:
     return output[0].strip()
 
 
+def ask(image: Image.Image, question: str, max_new_tokens: int = 48) -> str:
+    """Point d'entrée public pour un appel VLM libre (image + question) — utilisé
+    par canon.py, qui a besoin d'un prompt propre à lui (verdict de canon contre
+    une fiche de lore) plutôt que des mots-clés type extract_detail/refine_attributes."""
+    _load_model()
+    return _ask(image, question, max_new_tokens)
+
+
 def extract_detail(path: Path, category_slug: str) -> dict:
     _load_model()
     question = _question_for(category_slug, path)

@@ -19,6 +19,8 @@ def write_exif(
     attributes: list[dict],
     rating: int = 0,
     aesthetic_score: float | None = None,
+    canon_faction: str | None = None,
+    canon_verdict: str | None = None,
 ) -> None:
     if path.suffix.lower() not in JPEG_EXTS:
         return
@@ -37,6 +39,8 @@ def write_exif(
         comment += f" — note {rating}/5"
     if aesthetic_score is not None:
         comment += f" — score esthétique {aesthetic_score}/10 (IA)"
+    if canon_faction:
+        comment += f" — canon {canon_faction}: {canon_verdict or '?'}"
     keywords = ", ".join([category_label] + [a["value"] for a in attrs] if category_label else [a["value"] for a in attrs])
 
     exif_dict.setdefault("0th", {})
