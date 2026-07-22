@@ -587,7 +587,13 @@ let galCardByPath = new Map();
 let galSelectedPath = null;
 let galActiveCat = "";
 
-// La galerie part sur le dossier destination du tri si rien n'est encore saisi.
+// La galerie retient le dernier dossier chargé avec succès (localStorage) —
+// pré-rempli au chargement de la page, avant même tout clic. À défaut, se
+// rabat sur le dossier destination du tri au premier focus.
+const GAL_FOLDER_STORAGE_KEY = "iris.galFolder";
+const galLastFolder = localStorage.getItem(GAL_FOLDER_STORAGE_KEY);
+if (galLastFolder) galFolderEl.value = galLastFolder;
+
 galFolderEl.addEventListener("focus", () => {
   if (!galFolderEl.value && destEl.value) galFolderEl.value = destEl.value;
 }, { once: true });
@@ -749,6 +755,7 @@ async function galLoad() {
   try {
     const res = await fetch("/api/gallery?folder=" + encodeURIComponent(folder));
     if (!res.ok) { galCountsEl.textContent = "Erreur: " + (await res.text()); return; }
+    localStorage.setItem(GAL_FOLDER_STORAGE_KEY, folder);
     const data = await res.json();
     galItems = data.items;
     galItemsByPath = new Map(galItems.map(i => [i.path, i]));
