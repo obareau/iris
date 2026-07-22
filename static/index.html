@@ -18,6 +18,7 @@
       <button type="button" class="tab-btn" data-tab="galerie">Galerie</button>
       <button type="button" class="tab-btn" data-tab="doublons">Doublons</button>
       <button type="button" class="tab-btn" data-tab="graphe">Graphe</button>
+      <button type="button" class="tab-btn" data-tab="recta">Recta</button>
     </nav>
     <div class="global-progress" id="globalProgress">
       <div class="gp-head">
@@ -42,7 +43,7 @@
         </label>
         <label class="field">Destination
           <div class="path-picker">
-            <input id="dest" type="text" placeholder="/home/olivier/Photos/_classees" />
+            <input id="dest" type="text" placeholder="/home/olivier/renegats-photos/_classees" />
             <button type="button" class="btn ghost" data-browse-target="dest">…</button>
           </div>
         </label>
@@ -338,6 +339,46 @@
         <div class="insp-name" id="graphInspName"></div>
         <div class="insp-rows">
           <div class="insp-row"><span class="ir-key">Catégorie</span><span class="ir-val" id="graphInspCat"></span></div>
+        </div>
+      </div>
+    </aside>
+  </div>
+
+  <!-- Vue Recta : uniquement les photos déjà publiées (renegat_posted dans
+       le sidecar) — historique consultable sans repasser par Bluesky/FB -->
+  <div class="workspace" id="view-recta" hidden>
+    <aside class="panel panel-left">
+      <section class="pblock">
+        <h3>Dossier export</h3>
+        <label class="field">Photos classées
+          <div class="path-picker">
+            <input id="rectaFolder" type="text" placeholder="/home/olivier/renegats-photos/_classees" />
+            <button type="button" class="btn ghost" data-browse-target="rectaFolder">…</button>
+          </div>
+        </label>
+        <button id="rectaLoadBtn" class="btn primary full">Charger</button>
+        <small id="rectaCounts"></small>
+      </section>
+    </aside>
+
+    <main class="panel panel-center">
+      <div id="rectaGrid" class="grid"></div>
+      <div id="rectaEmpty" class="grid-empty">Charge le dossier export pour voir l'historique des publications.</div>
+    </main>
+
+    <aside class="panel panel-right" id="rectaInspector">
+      <div class="insp-empty" id="rectaInspEmpty">Clique une photo publiée pour voir le détail.</div>
+      <div class="insp-body" id="rectaInspBody" hidden>
+        <div class="insp-preview"><img id="rectaInspImg" alt="" /></div>
+        <div class="insp-name" id="rectaInspName"></div>
+        <div class="insp-rows">
+          <div class="insp-row"><span class="ir-key">Avis #</span><span class="ir-val" id="rectaInspNumero"></span></div>
+          <div class="insp-row"><span class="ir-key">Langue</span><span class="ir-val" id="rectaInspLang"></span></div>
+          <div class="insp-row"><span class="ir-key">Publié le</span><span class="ir-val" id="rectaInspDate"></span></div>
+        </div>
+        <div class="insp-section">
+          <h4>Réseaux</h4>
+          <div class="kv-list" id="rectaInspNetworks"></div>
         </div>
       </div>
     </aside>

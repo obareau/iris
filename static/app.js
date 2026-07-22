@@ -318,9 +318,13 @@ inspCat.addEventListener("change", async () => {
 });
 
 // ---------- Auto-remplissage destination ----------
+// Un seul dossier export, quel que soit le dossier source du jour — sinon
+// chaque nouvel import (source différente) crée son propre "_classees" à
+// côté, et Recta (qui ne lit qu'un chemin fixe) n'en voit qu'un sur N.
+const CANONICAL_EXPORT_DIR = "/home/olivier/renegats-photos/_classees";
 folderEl.addEventListener("change", () => {
-  if (!destEl.value && folderEl.value) {
-    destEl.value = folderEl.value.replace(/\/$/, "") + "/_classees";
+  if (!destEl.value) {
+    destEl.value = CANONICAL_EXPORT_DIR;
   }
 });
 
@@ -559,10 +563,11 @@ lightboxModal.addEventListener("click", (e) => { if (e.target === lightboxModal)
 document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !lightboxModal.hidden) closeLightbox(); });
 
 // ---------- Onglets Tri / Galerie ----------
-const views = { tri: $("view-tri"), galerie: $("view-galerie"), doublons: $("view-doublons"), graphe: $("view-graphe") };
+const views = { tri: $("view-tri"), galerie: $("view-galerie"), doublons: $("view-doublons"), graphe: $("view-graphe"), recta: $("view-recta") };
 views.galerie.style.display = "none"; // état initial : onglet Tri actif (le hidden HTML seul ne suffit pas, cf. commentaire ci-dessous)
 views.doublons.style.display = "none";
 views.graphe.style.display = "none";
+views.recta.style.display = "none";
 document.querySelectorAll(".tab-btn").forEach(btn => {
   btn.addEventListener("click", () => {
     document.querySelectorAll(".tab-btn").forEach(b => b.classList.toggle("active", b === btn));
@@ -1218,11 +1223,7 @@ dedupeThresholdEl.addEventListener("input", () => {
   dedupeThresholdVal.textContent = (dedupeThresholdEl.value / 100).toFixed(2);
 });
 
-dedupeFolderEl.addEventListener("focus", () => {
-  if (!dedupeFolderEl.value && (galFolderEl.value || destEl.value)) {
-    dedupeFolderEl.value = galFolderEl.value || destEl.value;
-  }
-}, { once: true });
+dedupeFolderEl.value = localStorage.getItem(GAL_FOLDER_STORAGE_KEY) || CANONICAL_EXPORT_DIR;
 
 // Peuple le filtre catégorie dès que le dossier est saisi — lecture seule
 // des sidecars/dossiers, aucun calcul de modèle (rapide, pas besoin d'un
@@ -1387,11 +1388,7 @@ wireCancelBtn(graphCancelBtn, "/api/gallery/graph/cancel");
 graphTopKEl.addEventListener("input", () => { graphTopKVal.textContent = graphTopKEl.value; });
 graphThresholdEl.addEventListener("input", () => { graphThresholdVal.textContent = (graphThresholdEl.value / 100).toFixed(2); });
 
-graphFolderEl.addEventListener("focus", () => {
-  if (!graphFolderEl.value && (galFolderEl.value || destEl.value)) {
-    graphFolderEl.value = galFolderEl.value || destEl.value;
-  }
-}, { once: true });
+graphFolderEl.value = localStorage.getItem(GAL_FOLDER_STORAGE_KEY) || CANONICAL_EXPORT_DIR;
 
 // Peuple le filtre catégorie sans calcul de modèle (même logique que Doublons).
 async function graphRefreshCategories() {
@@ -1424,13 +1421,21 @@ function graphRender(data) {
   graphSummary.textContent = `${data.nodes.length} photos · ${data.edges.length} liens`;
   if (!data.nodes.length) return;
 
+  // Seuil "quasi-identique" — distinct visuellement des liens juste
+  // thématiques (même style/perso récurrent), sinon tout se noie dans le
+  // même gris au milieu d'un layout dense.
+  const NEAR_DUP_THRESHOLD = 0.9;
+
   const elements = [
     ...data.nodes.map(n => ({
       data: { id: n.path, label: n.category_label || "" },
       style: { "background-image": "/api/thumbnail?path=" + encodeURIComponent(n.path) },
     })),
     ...data.edges.map(e => ({
-      data: { source: e.source, target: e.target, weight: e.weight },
+      data: {
+        source: e.source, target: e.target, weight: e.weight,
+        near: e.weight >= NEAR_DUP_THRESHOLD ? 1 : 0,
+      },
     })),
   ];
 
@@ -1452,12 +1457,26 @@ function graphRender(data) {
       {
         selector: "edge",
         style: {
-          width: "mapData(weight, 0.5, 1, 1, 5)",
-          opacity: "mapData(weight, 0.5, 1, 0.15, 0.7)",
+          width: "mapData(weight, 0.5, 1, 1, 4)",
+          opacity: "mapData(weight, 0.5, 1, 0.1, 0.5)",
           "line-color": "#9096a0",
           "curve-style": "haystack",
         },
       },
+      // Liens quasi-identiques : rouge, épais, opaques — sautent aux yeux
+      // au milieu du reste au lieu de se fondre dans le gris ambiant.
+      {
+        selector: "edge[near = 1]",
+        style: {
+          "line-color": "#d0503f",
+          width: "mapData(weight, 0.9, 1, 4, 7)",
+          opacity: 0.9,
+          "z-index": 10,
+        },
+      },
+      // Focus sur le voisinage du nœud tapé — le reste s'estompe.
+      { selector: ".dimmed", style: { opacity: 0.08 } },
+      { selector: "node.focused", style: { "border-color": "#d0503f", "border-width": 4 } },
     ],
     layout: { name: "cose", animate: false, nodeRepulsion: () => 8000, idealEdgeLength: () => 60 },
   });
@@ -1465,6 +1484,18 @@ function graphRender(data) {
   cy.on("tap", "node", (evt) => {
     const n = evt.target;
     graphSelectNode(n.id(), n.data("label"));
+
+    // Isole visuellement le nœud + ses voisins directs (surtout utile pour
+    // repérer LES quelques images vraiment proches d'une photo donnée,
+    // plutôt que de deviner dans la masse des 262 liens).
+    const neighborhood = n.closedNeighborhood();
+    cy.elements().addClass("dimmed");
+    neighborhood.removeClass("dimmed");
+    cy.nodes().removeClass("focused");
+    n.addClass("focused");
+  });
+  cy.on("tap", (evt) => {
+    if (evt.target === cy) { cy.elements().removeClass("dimmed"); cy.nodes().removeClass("focused"); }
   });
   cy.on("dblclick", "node", (evt) => openLightbox(evt.target.id()));
 }
@@ -1510,4 +1541,93 @@ graphBtn.addEventListener("click", async () => {
     return;
   }
   graphPoll();
+});
+
+// ---------- Recta : historique des photos déjà publiées ----------
+const rectaFolderEl = $("rectaFolder");
+const rectaLoadBtn = $("rectaLoadBtn");
+const rectaCountsEl = $("rectaCounts");
+const rectaGridEl = $("rectaGrid");
+const rectaEmptyEl = $("rectaEmpty");
+const rectaInspEmpty = $("rectaInspEmpty"), rectaInspBody = $("rectaInspBody");
+const rectaInspImg = $("rectaInspImg"), rectaInspName = $("rectaInspName");
+const rectaInspNumero = $("rectaInspNumero"), rectaInspLang = $("rectaInspLang"), rectaInspDate = $("rectaInspDate");
+const rectaInspNetworks = $("rectaInspNetworks");
+
+let rectaItemsByPath = new Map();
+
+// Préremplissage immédiat (pas d'attente d'un focus qui peut ne jamais venir
+// si l'utilisateur clique directement sur Charger — déjà vu ailleurs cette
+// session : un placeholder ressemble à une valeur mais n'en est pas une).
+rectaFolderEl.value = localStorage.getItem(GAL_FOLDER_STORAGE_KEY) || CANONICAL_EXPORT_DIR;
+
+function rectaMakeCard(item) {
+  const card = document.createElement("div");
+  card.className = "thumb";
+
+  const imgWrap = document.createElement("div");
+  imgWrap.className = "thumb-img";
+  const img = document.createElement("img");
+  img.loading = "lazy";
+  img.src = "/api/thumbnail?path=" + encodeURIComponent(item.path);
+  imgWrap.appendChild(img);
+
+  const foot = document.createElement("div");
+  foot.className = "thumb-foot";
+  const dot = document.createElement("span");
+  dot.className = "status-dot detailed";
+  const cat = document.createElement("span");
+  cat.className = "thumb-cat";
+  const d = new Date(item.renegat_posted.timestamp);
+  cat.textContent = `#${item.renegat_posted.numero} · ${d.toLocaleDateString()}`;
+  foot.appendChild(dot);
+  foot.appendChild(cat);
+
+  card.appendChild(imgWrap);
+  card.appendChild(foot);
+  card.addEventListener("click", () => rectaSelectImage(item.path));
+  card.addEventListener("dblclick", () => openLightbox(item.path));
+  return card;
+}
+
+function rectaSelectImage(path) {
+  const item = rectaItemsByPath.get(path);
+  if (!item) return;
+  rectaInspEmpty.hidden = true;
+  rectaInspBody.hidden = false;
+  rectaInspImg.src = "/api/thumbnail?path=" + encodeURIComponent(path);
+  rectaInspName.textContent = path.split("/").pop();
+  const rp = item.renegat_posted;
+  rectaInspNumero.textContent = "#" + rp.numero;
+  rectaInspLang.textContent = rp.lang || "—";
+  rectaInspDate.textContent = new Date(rp.timestamp).toLocaleString();
+  rectaInspNetworks.innerHTML = "";
+  for (const r of rp.results || []) {
+    const row = document.createElement("div");
+    row.className = "kv-row";
+    row.innerHTML = `<span class="kv-key">${r.network}</span><span class="kv-val">${r.ok ? "✓ " + (r.id || "") : "✗ " + (r.error || "")}</span>`;
+    rectaInspNetworks.appendChild(row);
+  }
+}
+
+rectaLoadBtn.addEventListener("click", async () => {
+  const folder = rectaFolderEl.value.trim();
+  if (!folder) { alert("Indique le dossier export."); return; }
+  rectaLoadBtn.disabled = true;
+  rectaCountsEl.textContent = "Chargement…";
+  try {
+    const res = await fetch("/api/gallery?folder=" + encodeURIComponent(folder));
+    if (!res.ok) { rectaCountsEl.textContent = "Erreur: " + (await res.text()); return; }
+    const data = await res.json();
+    const posted = data.items.filter(i => i.renegat_posted)
+      .sort((a, b) => new Date(b.renegat_posted.timestamp) - new Date(a.renegat_posted.timestamp));
+    rectaItemsByPath = new Map(posted.map(i => [i.path, i]));
+    rectaGridEl.innerHTML = "";
+    rectaInspBody.hidden = true; rectaInspEmpty.hidden = false;
+    for (const item of posted) rectaGridEl.appendChild(rectaMakeCard(item));
+    rectaEmptyEl.style.display = posted.length ? "none" : "";
+    rectaCountsEl.textContent = `${posted.length} publiée${posted.length > 1 ? "s" : ""} / ${data.items.length} au total`;
+  } finally {
+    rectaLoadBtn.disabled = false;
+  }
 });
