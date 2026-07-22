@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Iris — tri d'images</title>
 <link rel="stylesheet" href="/static/style.css" />
+<script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.28.1/cytoscape.min.js"></script>
 </head>
 <body>
 <div class="app">
@@ -16,6 +17,7 @@
       <button type="button" class="tab-btn active" data-tab="tri">Tri</button>
       <button type="button" class="tab-btn" data-tab="galerie">Galerie</button>
       <button type="button" class="tab-btn" data-tab="doublons">Doublons</button>
+      <button type="button" class="tab-btn" data-tab="graphe">Graphe</button>
     </nav>
     <div class="global-progress" id="globalProgress">
       <div class="gp-head">
@@ -285,6 +287,60 @@
       <div id="dedupeGroups" class="dedupe-groups"></div>
       <div id="dedupeEmpty" class="grid-empty">Choisis un dossier puis lance la détection.</div>
     </main>
+  </div>
+
+  <!-- Vue Graphe : nœuds = photos, arêtes = similarité visuelle (CLIP) —
+       révèle des regroupements thématiques plus larges que les doublons
+       stricts (même style, même personnage récurrent...) -->
+  <div class="workspace" id="view-graphe" hidden>
+    <aside class="panel panel-left">
+      <section class="pblock">
+        <h3>Dossier</h3>
+        <label class="field">Photos classées
+          <div class="path-picker">
+            <input id="graphFolder" type="text" placeholder="/home/olivier/Photos/_classees" />
+            <button type="button" class="btn ghost" data-browse-target="graphFolder">…</button>
+          </div>
+        </label>
+        <label class="field">Catégorie
+          <select id="graphFilterCat" class="select-sm" style="width:100%">
+            <option value="">Toutes catégories</option>
+          </select>
+        </label>
+        <label class="field">Voisins max par photo
+          <input id="graphTopK" type="range" min="2" max="10" value="5" />
+          <small id="graphTopKVal">5</small>
+        </label>
+        <label class="field">Seuil de similarité
+          <input id="graphThreshold" type="range" min="50" max="95" value="75" />
+          <small id="graphThresholdVal">0.75</small>
+        </label>
+        <button id="graphBtn" class="btn primary full">Construire le graphe</button>
+        <div class="minibar" id="graphBar">
+          <div class="minibar-head"><span id="graphPhase">Analyse</span><span id="graphCount">—</span><button id="graphCancelBtn" class="btn ghost" hidden>Annuler</button></div>
+          <div class="mb-track"><div class="mb-fill" id="graphFill"></div></div>
+        </div>
+      </section>
+      <section class="pblock">
+        <small id="graphSummary"></small>
+      </section>
+    </aside>
+
+    <main class="panel panel-center">
+      <div id="cyContainer" style="width:100%;height:100%"></div>
+      <div id="graphEmpty" class="grid-empty">Choisis un dossier puis clique Construire le graphe.</div>
+    </main>
+
+    <aside class="panel panel-right" id="graphInspector">
+      <div class="insp-empty" id="graphInspEmpty">Clique un nœud pour voir la photo.</div>
+      <div class="insp-body" id="graphInspBody" hidden>
+        <div class="insp-preview"><img id="graphInspImg" alt="" /></div>
+        <div class="insp-name" id="graphInspName"></div>
+        <div class="insp-rows">
+          <div class="insp-row"><span class="ir-key">Catégorie</span><span class="ir-val" id="graphInspCat"></span></div>
+        </div>
+      </div>
+    </aside>
   </div>
 </div>
 

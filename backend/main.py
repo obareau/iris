@@ -15,6 +15,7 @@ from PIL import Image
 sys.path.insert(0, str(Path(__file__).parent))
 import classifier
 import dedupe as dedupe_module
+import graph as graph_module
 import details as details_module
 import gallery as gallery_module
 import organizer
@@ -44,6 +45,9 @@ STATE = {
     "backfill_job_lock": threading.Lock(),
     "refine_gallery_job": {"status": "idle", "done": 0, "total": 0, "current": None},
     "refine_gallery_job_lock": threading.Lock(),
+    "graph_job": {"status": "idle", "done": 0, "total": 0, "phase": None},
+    "graph_job_lock": threading.Lock(),
+    "graph_data": {"nodes": [], "edges": []},
 }
 
 
@@ -91,6 +95,13 @@ class DedupeRequest(BaseModel):
     folder: str
     threshold: float = 0.92
     category: str | None = None
+
+
+class GraphRequest(BaseModel):
+    folder: str
+    category: str | None = None
+    top_k: int = 5
+    min_similarity: float = 0.75
 
 
 class DiscardRequest(BaseModel):
@@ -644,6 +655,56 @@ def dedupe_discard(req: DiscardRequest):
             g["images"].remove(req.path)
     STATE["dedupe_groups"] = [g for g in STATE["dedupe_groups"] if len(g["images"]) > 1]
     return {"trashed_to": trashed_to}
+
+
+def _run_graph(folder: str, category: str | None, top_k: int, min_similarity: float):
+    STATE["graph_job"] = {"status": "running", "done": 0, "total": 0, "phase": "scan", "cancel_requested": False}
+    try:
+        data = graph_module.build_similarity_graph(folder, category, top_k, min_similarity, progress=STATE["graph_job"])
+        if STATE["graph_job"]["status"] == "running":
+            STATE["graph_data"] = data
+            STATE["graph_job"]["status"] = "done"
+    except Exception as e:
+        STATE["graph_job"] = {"status": "error", "done": 0, "total": 0, "phase": str(e)}
+
+
+@app.post("/api/gallery/graph")
+def gallery_graph(req: GraphRequest):
+    with STATE["graph_job_lock"]:
+        if STATE["graph_job"]["status"] == "running":
+            raise HTTPException(409, "Un calcul de graphe est déjà en cours")
+        STATE["graph_job"] = {"status": "running", "done": 0, "total": 0, "phase": "scan", "cancel_requested": False}
+
+    thread = threading.Thread(
+        target=_run_graph, args=(req.folder, req.category, req.top_k, req.min_similarity), daemon=True
+    )
+    thread.start()
+    return {"started": True}
+
+
+@app.get("/api/gallery/graph-progress")
+def gallery_graph_progress():
+    return STATE["graph_job"]
+
+
+@app.get("/api/gallery/graph-results")
+def gallery_graph_results():
+    return STATE["graph_data"]
+
+
+@app.post("/api/gallery/graph/cancel")
+def gallery_graph_cancel():
+    if STATE["graph_job"]["status"] == "running":
+        STATE["graph_job"]["cancel_requested"] = True
+    return STATE["graph_job"]
+
+
+@app.get("/api/gallery/similar")
+def gallery_similar(path: str, top_k: int = 5, min_similarity: float = 0.5):
+    try:
+        return {"items": graph_module.similar_images(path, top_k, min_similarity)}
+    except FileNotFoundError as e:
+        raise HTTPException(404, str(e))
 
 
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")

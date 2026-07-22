@@ -559,9 +559,10 @@ lightboxModal.addEventListener("click", (e) => { if (e.target === lightboxModal)
 document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !lightboxModal.hidden) closeLightbox(); });
 
 // ---------- Onglets Tri / Galerie ----------
-const views = { tri: $("view-tri"), galerie: $("view-galerie"), doublons: $("view-doublons") };
+const views = { tri: $("view-tri"), galerie: $("view-galerie"), doublons: $("view-doublons"), graphe: $("view-graphe") };
 views.galerie.style.display = "none"; // état initial : onglet Tri actif (le hidden HTML seul ne suffit pas, cf. commentaire ci-dessous)
 views.doublons.style.display = "none";
+views.graphe.style.display = "none";
 document.querySelectorAll(".tab-btn").forEach(btn => {
   btn.addEventListener("click", () => {
     document.querySelectorAll(".tab-btn").forEach(b => b.classList.toggle("active", b === btn));
@@ -1364,4 +1365,149 @@ dedupeBtn.addEventListener("click", async () => {
     return;
   }
   dedupePoll();
+});
+
+// ---------- Graphe de similarité (nœuds = photos, arêtes = similarité CLIP) ----------
+const graphFolderEl = $("graphFolder");
+const graphFilterCatEl = $("graphFilterCat");
+const graphTopKEl = $("graphTopK"), graphTopKVal = $("graphTopKVal");
+const graphThresholdEl = $("graphThreshold"), graphThresholdVal = $("graphThresholdVal");
+const graphBtn = $("graphBtn");
+const graphBar = $("graphBar"), graphPhase = $("graphPhase"), graphCount = $("graphCount"), graphFill = $("graphFill");
+const graphCancelBtn = $("graphCancelBtn");
+const graphSummary = $("graphSummary");
+const cyContainer = $("cyContainer");
+const graphEmptyEl = $("graphEmpty");
+const graphInspEmpty = $("graphInspEmpty"), graphInspBody = $("graphInspBody");
+const graphInspImg = $("graphInspImg"), graphInspName = $("graphInspName"), graphInspCat = $("graphInspCat");
+
+let cy = null;
+wireCancelBtn(graphCancelBtn, "/api/gallery/graph/cancel");
+
+graphTopKEl.addEventListener("input", () => { graphTopKVal.textContent = graphTopKEl.value; });
+graphThresholdEl.addEventListener("input", () => { graphThresholdVal.textContent = (graphThresholdEl.value / 100).toFixed(2); });
+
+graphFolderEl.addEventListener("focus", () => {
+  if (!graphFolderEl.value && (galFolderEl.value || destEl.value)) {
+    graphFolderEl.value = galFolderEl.value || destEl.value;
+  }
+}, { once: true });
+
+// Peuple le filtre catégorie sans calcul de modèle (même logique que Doublons).
+async function graphRefreshCategories() {
+  const folder = graphFolderEl.value.trim();
+  if (!folder) return;
+  try {
+    const res = await fetch("/api/gallery?folder=" + encodeURIComponent(folder));
+    if (!res.ok) return;
+    const data = await res.json();
+    const current = graphFilterCatEl.value;
+    const cats = [...new Set(data.items.map(i => i.category_label).filter(Boolean))].sort();
+    graphFilterCatEl.innerHTML = '<option value="">Toutes catégories</option>'
+      + cats.map(c => `<option value="${c}">${c}</option>`).join("");
+    graphFilterCatEl.value = current;
+  } catch (e) { /* silencieux */ }
+}
+graphFolderEl.addEventListener("blur", graphRefreshCategories);
+
+function graphSelectNode(path, catLabel) {
+  graphInspEmpty.hidden = true;
+  graphInspBody.hidden = false;
+  graphInspImg.src = "/api/thumbnail?path=" + encodeURIComponent(path);
+  graphInspName.textContent = path.split("/").pop();
+  graphInspCat.textContent = catLabel || "—";
+}
+
+function graphRender(data) {
+  cyContainer.innerHTML = "";
+  graphEmptyEl.style.display = data.nodes.length ? "none" : "";
+  graphSummary.textContent = `${data.nodes.length} photos · ${data.edges.length} liens`;
+  if (!data.nodes.length) return;
+
+  const elements = [
+    ...data.nodes.map(n => ({
+      data: { id: n.path, label: n.category_label || "" },
+      style: { "background-image": "/api/thumbnail?path=" + encodeURIComponent(n.path) },
+    })),
+    ...data.edges.map(e => ({
+      data: { source: e.source, target: e.target, weight: e.weight },
+    })),
+  ];
+
+  cy = cytoscape({
+    container: cyContainer,
+    elements,
+    style: [
+      {
+        selector: "node",
+        style: {
+          width: 48, height: 48,
+          shape: "ellipse",
+          "background-fit": "cover",
+          "border-width": 2,
+          "border-color": "#d7dbe0",
+        },
+      },
+      { selector: "node:selected", style: { "border-color": "#3b6fd6", "border-width": 4 } },
+      {
+        selector: "edge",
+        style: {
+          width: "mapData(weight, 0.5, 1, 1, 5)",
+          opacity: "mapData(weight, 0.5, 1, 0.15, 0.7)",
+          "line-color": "#9096a0",
+          "curve-style": "haystack",
+        },
+      },
+    ],
+    layout: { name: "cose", animate: false, nodeRepulsion: () => 8000, idealEdgeLength: () => 60 },
+  });
+
+  cy.on("tap", "node", (evt) => {
+    const n = evt.target;
+    graphSelectNode(n.id(), n.data("label"));
+  });
+  cy.on("dblclick", "node", (evt) => openLightbox(evt.target.id()));
+}
+
+async function graphPoll() {
+  const pRes = await fetch("/api/gallery/graph-progress").then(r => r.json());
+  const phase = pRes.phase === "graph" ? "Construction du graphe" : (pRes.phase === "scan" ? "Analyse" : "Embeddings");
+  graphPhase.textContent = phase;
+  graphCount.textContent = pRes.total ? `${pRes.done} / ${pRes.total}` : "—";
+  setBar(graphFill, pRes.done, pRes.total);
+  graphCancelBtn.hidden = pRes.status !== "running";
+
+  if (pRes.status === "running") { setTimeout(graphPoll, 700); return; }
+  graphBtn.disabled = false;
+  if (pRes.status === "error") { graphSummary.textContent = "Erreur : " + pRes.phase; return; }
+  if (pRes.status === "cancelled") { graphSummary.textContent = "Annulé."; return; }
+  graphFill.classList.add("done");
+  const data = await fetch("/api/gallery/graph-results").then(r => r.json());
+  graphRender(data);
+}
+
+graphBtn.addEventListener("click", async () => {
+  const folder = graphFolderEl.value.trim();
+  if (!folder) { alert("Indique un dossier déjà classé."); return; }
+  graphBtn.disabled = true;
+  graphFill.classList.remove("done");
+  setBar(graphFill, 0, 1);
+  graphSummary.textContent = "";
+  graphEmptyEl.style.display = "none";
+
+  const res = await fetch("/api/gallery/graph", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      folder,
+      category: graphFilterCatEl.value || null,
+      top_k: parseInt(graphTopKEl.value, 10),
+      min_similarity: graphThresholdEl.value / 100,
+    }),
+  });
+  if (!res.ok) {
+    graphSummary.textContent = "Erreur : " + (await res.text());
+    graphBtn.disabled = false;
+    return;
+  }
+  graphPoll();
 });

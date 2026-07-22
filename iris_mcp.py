@@ -128,5 +128,16 @@ def iris_image_details(path: str) -> dict:
     return _get("/api/gallery/item", {"path": path})
 
 
+@mcp.tool()
+def iris_similar_images(path: str, top_k: int = 5, min_similarity: float = 0.5) -> list[dict]:
+    """Voisins visuels d'UNE photo précise (similarité CLIP sur l'embedding
+    image, pas de texte) — répond à "trouve-moi d'autres photos qui
+    ressemblent à celle-ci" plutôt qu'à une description en langage naturel
+    (voir iris_search pour ça). Cherche dans le même dossier _classees que
+    `path`. Renvoie {path, category_label, details, rating, score}."""
+    data = _get("/api/gallery/similar", {"path": path, "top_k": top_k, "min_similarity": min_similarity})
+    return [_lean(i) for i in data["items"]]
+
+
 if __name__ == "__main__":
     mcp.run(transport="stdio")
