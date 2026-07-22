@@ -9,6 +9,7 @@ data/
 # Poids de modèles téléchargés
 *.pt
 *.onnx
+*.pth
 
 # Divers
 .DS_Store

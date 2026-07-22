@@ -716,6 +716,7 @@ const galInspEmpty = $("galInspEmpty"), galInspBody = $("galInspBody");
 const galInspImg = $("galInspImg"), galInspName = $("galInspName"), galInspCat = $("galInspCat");
 const galInspDetails = $("galInspDetails");
 const galInspAttrSection = $("galInspAttrSection"), galInspAttrs = $("galInspAttrs");
+const galInspAesthetic = $("galInspAesthetic");
 const galPostedStatus = $("galPostedStatus");
 const galRenegatBtn = $("galRenegatBtn");
 const galDeleteBtn = $("galDeleteBtn");
@@ -860,6 +861,10 @@ function galRenderInspector(item) {
     galPostedStatus.textContent = "";
     galRenegatBtn.textContent = "Publier en Renegat";
   }
+
+  galInspAesthetic.textContent = item.aesthetic_score != null
+    ? `${item.aesthetic_score} / 10 (IA)`
+    : "—";
 
   galRenderStars(item.rating || 0);
 }
@@ -1183,6 +1188,9 @@ const galBulkDeleteBtn = $("galBulkDeleteBtn");
 const galBulkRefineBtn = $("galBulkRefineBtn");
 const galBulkRefineCancelBtn = $("galBulkRefineCancelBtn");
 wireCancelBtn(galBulkRefineCancelBtn, "/api/gallery/refine/cancel");
+const galBulkAestheticBtn = $("galBulkAestheticBtn");
+const galBulkAestheticCancelBtn = $("galBulkAestheticCancelBtn");
+wireCancelBtn(galBulkAestheticCancelBtn, "/api/gallery/aesthetic/cancel");
 const galSelectAllBtn = $("galSelectAllBtn");
 
 let galSelectedPaths = new Set();
@@ -1328,6 +1336,48 @@ galBulkRefineBtn.addEventListener("click", async () => {
     return;
   }
   galRefinePoll();
+});
+
+async function galAestheticPoll() {
+  const pRes = await fetch("/api/gallery/aesthetic-progress").then(r => r.json());
+  galBulkAestheticBtn.textContent = pRes.total
+    ? `Score en cours… ${pRes.done} / ${pRes.total}`
+    : "Score en cours…";
+  galBulkAestheticCancelBtn.hidden = pRes.status !== "running";
+  if (pRes.status === "running") { setTimeout(galAestheticPoll, 700); return; }
+  galBulkAestheticBtn.disabled = false;
+  galBulkAestheticBtn.textContent = "Score esthétique (IA)";
+  if (pRes.status === "error") { alert("Erreur : " + pRes.current); return; }
+  // Recharge le score à jour pour les photos concernées sans tout recharger.
+  const paths = [...galSelectedPaths];
+  const items = await Promise.all(paths.map(p =>
+    fetch("/api/gallery/item?path=" + encodeURIComponent(p)).then(r => r.ok ? r.json() : null)
+  ));
+  for (const it of items) {
+    if (!it) continue;
+    Object.assign(galItemsByPath.get(it.path), it);
+  }
+  if (galSelectedPath && paths.includes(galSelectedPath)) {
+    galRenderInspector(galItemsByPath.get(galSelectedPath));
+  }
+}
+
+galBulkAestheticBtn.addEventListener("click", async () => {
+  const paths = [...galSelectedPaths];
+  if (!paths.length) return;
+  galBulkAestheticBtn.disabled = true;
+  galBulkAestheticBtn.textContent = "Score en cours…";
+  const res = await fetch("/api/gallery/aesthetic", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ folder: galFolderEl.value.trim(), paths }),
+  });
+  if (!res.ok) {
+    alert("Erreur : " + (await res.text()));
+    galBulkAestheticBtn.disabled = false;
+    galBulkAestheticBtn.textContent = "Score esthétique (IA)";
+    return;
+  }
+  galAestheticPoll();
 });
 
 // ---------- Doublons / images similaires ----------

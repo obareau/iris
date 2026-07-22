@@ -5,6 +5,7 @@ import unicodedata
 from datetime import datetime
 from pathlib import Path
 
+import aesthetic
 import exif_writer
 
 LOG_DIR = Path(__file__).parent.parent / "data" / "logs"
@@ -89,6 +90,10 @@ def apply_moves(items: list[dict], dest_root: str) -> dict:
         sidecar_path = dest_path.with_suffix(".json")
         try:
             shutil.move(str(src), str(dest_path))
+            try:
+                aesthetic_score = aesthetic.score_path(dest_path)
+            except Exception:
+                aesthetic_score = None  # best-effort — jamais bloquant pour l'application du tri
             # Sidecar : seul endroit où les attributs de la passe 3 survivent
             # après l'application du tri — sans lui ils disparaissaient avec
             # l'entrée STATE["results"] au moment du pop() ci-dessous.
@@ -101,6 +106,7 @@ def apply_moves(items: list[dict], dest_root: str) -> dict:
                         "orientation": item.get("orientation"),
                         "details": item.get("details"),
                         "attributes": attributes or [],
+                        "aesthetic_score": aesthetic_score,
                         "source_path": str(src),
                         "applied_at": datetime.now().isoformat(),
                     },
@@ -108,7 +114,7 @@ def apply_moves(items: list[dict], dest_root: str) -> dict:
                     indent=2,
                 )
             )
-            exif_writer.write_exif(dest_path, item["category_label"], item.get("details"), attributes)
+            exif_writer.write_exif(dest_path, item["category_label"], item.get("details"), attributes, aesthetic_score=aesthetic_score)
             log_entries.append({"from": str(src), "to": str(dest_path), "sidecar": str(sidecar_path)})
         except Exception as e:
             errors.append({"path": str(src), "error": str(e)})

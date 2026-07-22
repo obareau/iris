@@ -12,7 +12,14 @@ import piexif
 JPEG_EXTS = {".jpg", ".jpeg"}
 
 
-def write_exif(path: Path, category_label: str, details: str | None, attributes: list[dict], rating: int = 0) -> None:
+def write_exif(
+    path: Path,
+    category_label: str,
+    details: str | None,
+    attributes: list[dict],
+    rating: int = 0,
+    aesthetic_score: float | None = None,
+) -> None:
     if path.suffix.lower() not in JPEG_EXTS:
         return
     try:
@@ -28,6 +35,8 @@ def write_exif(path: Path, category_label: str, details: str | None, attributes:
         comment += f" — {attrs_text}"
     if rating:
         comment += f" — note {rating}/5"
+    if aesthetic_score is not None:
+        comment += f" — score esthétique {aesthetic_score}/10 (IA)"
     keywords = ", ".join([category_label] + [a["value"] for a in attrs] if category_label else [a["value"] for a in attrs])
 
     exif_dict.setdefault("0th", {})

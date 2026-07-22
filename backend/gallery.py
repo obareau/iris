@@ -3,6 +3,7 @@ from pathlib import Path
 
 import numpy as np
 
+import aesthetic
 import classifier
 import details as details_module
 import exif_writer
@@ -55,6 +56,7 @@ def list_gallery(folder: str) -> list[dict]:
             "renegat_posted": sidecar.get("renegat_posted"),
             "has_sidecar": bool(sidecar),
             "rating": sidecar.get("rating", 0),
+            "aesthetic_score": sidecar.get("aesthetic_score"),
         })
     return items
 
@@ -82,6 +84,7 @@ def get_item(path: str) -> dict:
         "details": sidecar.get("details"),
         "attributes": sidecar.get("attributes", []),
         "rating": sidecar.get("rating", 0),
+        "aesthetic_score": sidecar.get("aesthetic_score"),
         "renegat_posted": sidecar.get("renegat_posted"),
         "has_sidecar": bool(sidecar),
     }
@@ -133,7 +136,10 @@ def set_rating(image_path: str, rating: int) -> None:
     existing = _read_sidecar(path)
     existing["rating"] = rating
     _write_sidecar(path, existing)
-    exif_writer.write_exif(path, existing.get("category_label"), existing.get("details"), existing.get("attributes"), rating)
+    exif_writer.write_exif(
+        path, existing.get("category_label"), existing.get("details"),
+        existing.get("attributes"), rating, existing.get("aesthetic_score"),
+    )
 
 
 def backfill_details(folder: str, paths: list[str], progress: dict | None = None) -> None:
@@ -171,7 +177,10 @@ def backfill_details(folder: str, paths: list[str], progress: dict | None = None
                 "attributes": attributes,
             })
             _write_sidecar(path, existing)
-            exif_writer.write_exif(path, existing["category_label"], detail["text"], attributes, existing.get("rating", 0))
+            exif_writer.write_exif(
+                path, existing["category_label"], detail["text"], attributes,
+                existing.get("rating", 0), existing.get("aesthetic_score"),
+            )
         except Exception as e:
             if progress is not None:
                 progress.setdefault("errors", []).append({"path": path_str, "error": str(e)})
@@ -210,7 +219,7 @@ def refine_attributes_for(folder: str, paths: list[str], progress: dict | None =
             _write_sidecar(path, existing)
             exif_writer.write_exif(
                 path, existing.get("category_label"), existing.get("details"),
-                existing["attributes"], existing.get("rating", 0),
+                existing["attributes"], existing.get("rating", 0), existing.get("aesthetic_score"),
             )
         except Exception as e:
             if progress is not None:
@@ -251,3 +260,36 @@ def taxonomy(folder: str, category: str | None = None) -> dict:
         label: sorted(({"value": v, "count": c} for v, c in values.items()), key=lambda x: -x["count"])
         for label, values in by_label.items()
     }
+
+
+def score_aesthetic_for(folder: str, paths: list[str], progress: dict | None = None) -> None:
+    """Calcule le score esthétique (aesthetic.py) pour des photos déjà
+    classées — retombe sur les embeddings CLIP déjà en cache (passe 1),
+    donc rapide même sur un gros lot déjà analysé."""
+    if progress is not None:
+        progress["total"] = len(paths)
+        progress["done"] = 0
+
+    for path_str in paths:
+        if progress is not None and progress.get("cancel_requested"):
+            progress["status"] = "cancelled"
+            progress["current"] = None
+            return
+        path = Path(path_str)
+        if progress is not None:
+            progress["current"] = path_str
+        try:
+            existing = _read_sidecar(path)
+            existing["aesthetic_score"] = aesthetic.score_path(path)
+            _write_sidecar(path, existing)
+            exif_writer.write_exif(
+                path, existing.get("category_label"), existing.get("details"),
+                existing.get("attributes"), existing.get("rating", 0), existing["aesthetic_score"],
+            )
+        except Exception as e:
+            if progress is not None:
+                progress.setdefault("errors", []).append({"path": path_str, "error": str(e)})
+        if progress is not None:
+            progress["done"] += 1
+    if progress is not None:
+        progress["current"] = None

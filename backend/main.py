@@ -46,6 +46,8 @@ STATE = {
     "backfill_job_lock": threading.Lock(),
     "refine_gallery_job": {"status": "idle", "done": 0, "total": 0, "current": None},
     "refine_gallery_job_lock": threading.Lock(),
+    "aesthetic_job": {"status": "idle", "done": 0, "total": 0, "current": None},
+    "aesthetic_job_lock": threading.Lock(),
     "graph_job": {"status": "idle", "done": 0, "total": 0, "phase": None},
     "graph_job_lock": threading.Lock(),
     "graph_data": {"nodes": [], "edges": []},
@@ -558,6 +560,42 @@ def gallery_refine_cancel():
     if STATE["refine_gallery_job"]["status"] == "running":
         STATE["refine_gallery_job"]["cancel_requested"] = True
     return STATE["refine_gallery_job"]
+
+
+def _run_aesthetic(folder: str, paths: list[str]):
+    STATE["aesthetic_job"] = {"status": "running", "done": 0, "total": len(paths), "current": None, "cancel_requested": False}
+    try:
+        gallery_module.score_aesthetic_for(folder, paths, progress=STATE["aesthetic_job"])
+        if STATE["aesthetic_job"]["status"] == "running":
+            STATE["aesthetic_job"]["status"] = "done"
+    except Exception as e:
+        STATE["aesthetic_job"] = {"status": "error", "done": 0, "total": 0, "current": str(e)}
+
+
+@app.post("/api/gallery/aesthetic")
+def gallery_aesthetic(req: RefineRequest):
+    with STATE["aesthetic_job_lock"]:
+        if STATE["aesthetic_job"]["status"] == "running":
+            raise HTTPException(409, "Un calcul de score esthétique est déjà en cours")
+        if not req.paths:
+            raise HTTPException(400, "Rien à noter")
+        STATE["aesthetic_job"] = {"status": "running", "done": 0, "total": len(req.paths), "current": None, "cancel_requested": False}
+
+    thread = threading.Thread(target=_run_aesthetic, args=(req.folder, req.paths), daemon=True)
+    thread.start()
+    return {"started": True, "total": len(req.paths)}
+
+
+@app.get("/api/gallery/aesthetic-progress")
+def gallery_aesthetic_progress():
+    return STATE["aesthetic_job"]
+
+
+@app.post("/api/gallery/aesthetic/cancel")
+def gallery_aesthetic_cancel():
+    if STATE["aesthetic_job"]["status"] == "running":
+        STATE["aesthetic_job"]["cancel_requested"] = True
+    return STATE["aesthetic_job"]
 
 
 @app.post("/api/gallery/rating")
