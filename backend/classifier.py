@@ -44,6 +44,18 @@ def text_embeddings(categories: list[dict]) -> torch.Tensor:
     return feats
 
 
+def embed_image_raw(img: Image.Image) -> np.ndarray:
+    """Encode une image (déjà en mémoire, ex: un crop) sans passer par le
+    cache disque — utilisé par identity.py, qui gère son propre cache sous
+    une clé distincte (le crop n'est pas l'image entière)."""
+    _load_model()
+    with torch.no_grad():
+        tensor = _preprocess(img).unsqueeze(0).to(DEVICE)
+        feat = _model.encode_image(tensor)
+        feat = feat / feat.norm(dim=-1, keepdim=True)
+    return feat.squeeze(0).cpu().numpy().astype(np.float32)
+
+
 def image_embedding(path, mtime: float, size: int) -> np.ndarray:
     cached = cache.get_embedding(str(path), mtime, size)
     if cached is not None:

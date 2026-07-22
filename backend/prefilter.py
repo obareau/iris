@@ -41,7 +41,9 @@ def _class_to_slug(name: str) -> str:
 
 def detect(path) -> list[dict]:
     """Runs YOLO once and returns every detection as
-    {name, conf, area} (area = fraction of the image covered)."""
+    {name, conf, area, box} (area = fraction of the image covered,
+    box = [x1,y1,x2,y2] in pixels — used by identity.py to crop the person
+    region for identity clustering; unused elsewhere, safe to ignore)."""
     _load_model()
     result = _model.predict(str(path), conf=CONF_THRESHOLD, verbose=False)[0]
     dets = []
@@ -55,6 +57,7 @@ def detect(path) -> list[dict]:
                 "name": result.names[int(box.cls[0])],
                 "conf": round(float(box.conf[0]), 3),
                 "area": round(area_fraction, 3),
+                "box": [x1, y1, x2, y2],
             })
     return dets
 

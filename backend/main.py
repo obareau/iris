@@ -16,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 import classifier
 import dedupe as dedupe_module
 import graph as graph_module
+import identity as identity_module
 import details as details_module
 import gallery as gallery_module
 import organizer
@@ -102,6 +103,7 @@ class GraphRequest(BaseModel):
     category: str | None = None
     top_k: int = 5
     min_similarity: float = 0.75
+    mode: str = "similarity"  # "similarity" (whole-image, graph.py) ou "identity" (crop visage, identity.py)
 
 
 class DiscardRequest(BaseModel):
@@ -657,10 +659,13 @@ def dedupe_discard(req: DiscardRequest):
     return {"trashed_to": trashed_to}
 
 
-def _run_graph(folder: str, category: str | None, top_k: int, min_similarity: float):
+def _run_graph(folder: str, category: str | None, top_k: int, min_similarity: float, mode: str):
     STATE["graph_job"] = {"status": "running", "done": 0, "total": 0, "phase": "scan", "cancel_requested": False}
     try:
-        data = graph_module.build_similarity_graph(folder, category, top_k, min_similarity, progress=STATE["graph_job"])
+        if mode == "identity":
+            data = identity_module.build_identity_graph(folder, top_k, min_similarity, progress=STATE["graph_job"])
+        else:
+            data = graph_module.build_similarity_graph(folder, category, top_k, min_similarity, progress=STATE["graph_job"])
         if STATE["graph_job"]["status"] == "running":
             STATE["graph_data"] = data
             STATE["graph_job"]["status"] = "done"
@@ -676,7 +681,7 @@ def gallery_graph(req: GraphRequest):
         STATE["graph_job"] = {"status": "running", "done": 0, "total": 0, "phase": "scan", "cancel_requested": False}
 
     thread = threading.Thread(
-        target=_run_graph, args=(req.folder, req.category, req.top_k, req.min_similarity), daemon=True
+        target=_run_graph, args=(req.folder, req.category, req.top_k, req.min_similarity, req.mode), daemon=True
     )
     thread.start()
     return {"started": True}

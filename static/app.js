@@ -1370,7 +1370,21 @@ dedupeBtn.addEventListener("click", async () => {
 
 // ---------- Graphe de similarité (nœuds = photos, arêtes = similarité CLIP) ----------
 const graphFolderEl = $("graphFolder");
+const graphModeEl = $("graphMode");
+const graphCatField = $("graphCatField");
 const graphFilterCatEl = $("graphFilterCat");
+
+graphModeEl.addEventListener("change", () => {
+  const isIdentity = graphModeEl.value === "identity";
+  // L'identité se limite déjà à Personnes côté serveur — le sélecteur de
+  // catégorie n'aurait pas de sens ici, autant l'écarter pour ne pas
+  // laisser croire qu'on peut choisir autre chose.
+  graphCatField.style.display = isIdentity ? "none" : "";
+  if (isIdentity && graphThresholdEl.value < 85) {
+    graphThresholdEl.value = 85;
+    graphThresholdEl.dispatchEvent(new Event("input"));
+  }
+});
 const graphTopKEl = $("graphTopK"), graphTopKVal = $("graphTopKVal");
 const graphThresholdEl = $("graphThreshold"), graphThresholdVal = $("graphThresholdVal");
 const graphBtn = $("graphBtn");
@@ -1502,7 +1516,10 @@ function graphRender(data) {
 
 async function graphPoll() {
   const pRes = await fetch("/api/gallery/graph-progress").then(r => r.json());
-  const phase = pRes.phase === "graph" ? "Construction du graphe" : (pRes.phase === "scan" ? "Analyse" : "Embeddings");
+  const phase = pRes.phase === "graph" ? "Construction du graphe"
+    : pRes.phase === "scan" ? "Analyse"
+    : pRes.phase === "faces" ? "Détection des visages"
+    : "Embeddings";
   graphPhase.textContent = phase;
   graphCount.textContent = pRes.total ? `${pRes.done} / ${pRes.total}` : "—";
   setBar(graphFill, pRes.done, pRes.total);
@@ -1531,6 +1548,7 @@ graphBtn.addEventListener("click", async () => {
     body: JSON.stringify({
       folder,
       category: graphFilterCatEl.value || null,
+      mode: graphModeEl.value,
       top_k: parseInt(graphTopKEl.value, 10),
       min_similarity: graphThresholdEl.value / 100,
     }),

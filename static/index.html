@@ -303,7 +303,13 @@
             <button type="button" class="btn ghost" data-browse-target="graphFolder">…</button>
           </div>
         </label>
-        <label class="field">Catégorie
+        <label class="field">Mode
+          <select id="graphMode" class="select-sm" style="width:100%">
+            <option value="similarity">Similarité générale (style/scène)</option>
+            <option value="identity">Identité (même personnage récurrent)</option>
+          </select>
+        </label>
+        <label class="field" id="graphCatField">Catégorie
           <select id="graphFilterCat" class="select-sm" style="width:100%">
             <option value="">Toutes catégories</option>
           </select>
