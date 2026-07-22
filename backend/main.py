@@ -206,86 +206,94 @@ def _run_analysis(categories: list[dict]):
     STATE["job"] = {"status": "running", "done": 0, "total": len(files), "current": None, "phase": "yolo", "cancel_requested": False}
     STATE["results"] = {}
 
-    available_slugs = {c["slug"] for c in categories}
+    try:
+        available_slugs = {c["slug"] for c in categories}
 
-    paths_with_stat = []
-    for p in files:
-        st = p.stat()
-        paths_with_stat.append((p, st.st_mtime, st.st_size))
+        paths_with_stat = []
+        for p in files:
+            st = p.stat()
+            paths_with_stat.append((p, st.st_mtime, st.st_size))
 
-    # Pass 1: fast YOLO pre-filter. Resolves clear-cut person/animal/object
-    # images instantly; anything ambiguous (typically landscapes) is left
-    # for the slower CLIP zero-shot pass below. Detections are kept for every
-    # image (even those handed to CLIP) so the inspector can show them.
-    needs_clip = []
-    detections_map: dict[str, list] = {}
-    for p, mtime, size in paths_with_stat:
+        # Pass 1: fast YOLO pre-filter. Resolves clear-cut person/animal/object
+        # images instantly; anything ambiguous (typically landscapes) is left
+        # for the slower CLIP zero-shot pass below. Detections are kept for every
+        # image (even those handed to CLIP) so the inspector can show them.
+        needs_clip = []
+        detections_map: dict[str, list] = {}
+        for p, mtime, size in paths_with_stat:
+            if STATE["job"]["cancel_requested"]:
+                STATE["job"]["status"] = "cancelled"
+                STATE["job"]["current"] = None
+                return
+            key = str(p)
+            STATE["job"]["current"] = key
+            try:
+                dets = prefilter.detect(p)
+            except Exception:
+                dets = []
+            detections_map[key] = prefilter.summarize(dets)
+            quick = prefilter.pick_category(dets, available_slugs)
+            if quick is not None:
+                slug, confidence = quick
+                label = next((c["label"] for c in categories if c["slug"] == slug), classifier.FALLBACK_CATEGORY["label"])
+                _finalize_item(key, p, {
+                    "path": key,
+                    "category_slug": slug,
+                    "category_label": label,
+                    "confidence": round(confidence, 3),
+                    "source": "yolo",
+                    "detections": detections_map[key],
+                })
+                STATE["job"]["done"] += 1
+            else:
+                needs_clip.append((p, mtime, size))
+
         if STATE["job"]["cancel_requested"]:
             STATE["job"]["status"] = "cancelled"
             STATE["job"]["current"] = None
             return
-        key = str(p)
-        STATE["job"]["current"] = key
-        try:
-            dets = prefilter.detect(p)
-        except Exception:
-            dets = []
-        detections_map[key] = prefilter.summarize(dets)
-        quick = prefilter.pick_category(dets, available_slugs)
-        if quick is not None:
-            slug, confidence = quick
-            label = next((c["label"] for c in categories if c["slug"] == slug), classifier.FALLBACK_CATEGORY["label"])
-            _finalize_item(key, p, {
-                "path": key,
-                "category_slug": slug,
-                "category_label": label,
-                "confidence": round(confidence, 3),
-                "source": "yolo",
-                "detections": detections_map[key],
-            })
+
+        # Pass 2: CLIP zero-shot for whatever YOLO couldn't resolve confidently.
+        STATE["job"]["phase"] = "clip"
+        text_feats = classifier.text_embeddings(categories)
+        embeddings = classifier.batch_image_embeddings(needs_clip)
+
+        for p, mtime, size in needs_clip:
+            if STATE["job"]["cancel_requested"]:
+                STATE["job"]["status"] = "cancelled"
+                STATE["job"]["current"] = None
+                return
+            key = str(p)
+            STATE["job"]["current"] = key
+            try:
+                emb = embeddings.get(key)
+                if emb is None:
+                    raise ValueError("embedding indisponible")
+                slug, confidence = classifier.classify(emb, categories, text_feats)
+                scores = classifier.classify_scores(emb, categories, text_feats)
+                label = next((c["label"] for c in categories if c["slug"] == slug), classifier.FALLBACK_CATEGORY["label"])
+                _finalize_item(key, p, {
+                    "path": key,
+                    "category_slug": slug,
+                    "category_label": label,
+                    "confidence": round(confidence, 3),
+                    "source": "clip",
+                    "detections": detections_map.get(key, []),
+                    "clip_scores": scores,
+                })
+            except Exception as e:
+                STATE["results"][key] = {"path": key, "error": str(e)}
             STATE["job"]["done"] += 1
-        else:
-            needs_clip.append((p, mtime, size))
 
-    if STATE["job"]["cancel_requested"]:
-        STATE["job"]["status"] = "cancelled"
         STATE["job"]["current"] = None
-        return
-
-    # Pass 2: CLIP zero-shot for whatever YOLO couldn't resolve confidently.
-    STATE["job"]["phase"] = "clip"
-    text_feats = classifier.text_embeddings(categories)
-    embeddings = classifier.batch_image_embeddings(needs_clip)
-
-    for p, mtime, size in needs_clip:
-        if STATE["job"]["cancel_requested"]:
-            STATE["job"]["status"] = "cancelled"
-            STATE["job"]["current"] = None
-            return
-        key = str(p)
-        STATE["job"]["current"] = key
-        try:
-            emb = embeddings.get(key)
-            if emb is None:
-                raise ValueError("embedding indisponible")
-            slug, confidence = classifier.classify(emb, categories, text_feats)
-            scores = classifier.classify_scores(emb, categories, text_feats)
-            label = next((c["label"] for c in categories if c["slug"] == slug), classifier.FALLBACK_CATEGORY["label"])
-            _finalize_item(key, p, {
-                "path": key,
-                "category_slug": slug,
-                "category_label": label,
-                "confidence": round(confidence, 3),
-                "source": "clip",
-                "detections": detections_map.get(key, []),
-                "clip_scores": scores,
-            })
-        except Exception as e:
-            STATE["results"][key] = {"path": key, "error": str(e)}
-        STATE["job"]["done"] += 1
-
-    STATE["job"]["current"] = None
-    STATE["job"]["status"] = "done"
+        STATE["job"]["status"] = "done"
+    except Exception as e:
+        # Sans ce filet, une exception hors des try par-image (ex: le batch
+        # CLIP entier qui plante) laissait "status" bloqué sur "running" à
+        # jamais — /api/analyze refuse alors tout nouvel import (409) sans
+        # qu'aucun bouton de l'UI ne puisse s'en sortir. Vécu en réel.
+        STATE["job"]["status"] = "error"
+        STATE["job"]["current"] = str(e)
 
 
 @app.post("/api/analyze/cancel")
@@ -339,25 +347,31 @@ def override(req: OverrideRequest):
 
 def _run_details(paths: list[str]):
     STATE["details_job"] = {"status": "running", "done": 0, "total": len(paths), "current": None, "cancel_requested": False}
-    for path in paths:
-        if STATE["details_job"]["cancel_requested"]:
-            STATE["details_job"]["status"] = "cancelled"
-            STATE["details_job"]["current"] = None
-            return
-        item = STATE["results"].get(path)
-        if item is None or "error" in item:
+    try:
+        for path in paths:
+            if STATE["details_job"]["cancel_requested"]:
+                STATE["details_job"]["status"] = "cancelled"
+                STATE["details_job"]["current"] = None
+                return
+            item = STATE["results"].get(path)
+            if item is None or "error" in item:
+                STATE["details_job"]["done"] += 1
+                continue
+            STATE["details_job"]["current"] = path
+            try:
+                detail = details_module.extract_detail(Path(path), item["category_slug"])
+                item["details"] = detail["text"]
+                item["details_slug"] = detail["slug"]
+            except Exception as e:
+                item["details_error"] = str(e)
             STATE["details_job"]["done"] += 1
-            continue
-        STATE["details_job"]["current"] = path
-        try:
-            detail = details_module.extract_detail(Path(path), item["category_slug"])
-            item["details"] = detail["text"]
-            item["details_slug"] = detail["slug"]
-        except Exception as e:
-            item["details_error"] = str(e)
-        STATE["details_job"]["done"] += 1
-    STATE["details_job"]["current"] = None
-    STATE["details_job"]["status"] = "done"
+        STATE["details_job"]["current"] = None
+        STATE["details_job"]["status"] = "done"
+    except Exception as e:
+        # Même filet que _run_analysis — sans lui un crash hors du try
+        # par-image bloque "status" sur "running" pour toujours.
+        STATE["details_job"]["status"] = "error"
+        STATE["details_job"]["current"] = str(e)
 
 
 @app.post("/api/extract-details/cancel")
@@ -391,23 +405,29 @@ def details_progress():
 
 def _run_refine(paths: list[str]):
     STATE["refine_job"] = {"status": "running", "done": 0, "total": len(paths), "current": None, "cancel_requested": False}
-    for path in paths:
-        if STATE["refine_job"]["cancel_requested"]:
-            STATE["refine_job"]["status"] = "cancelled"
-            STATE["refine_job"]["current"] = None
-            return
-        item = STATE["results"].get(path)
-        if item is None or "error" in item:
+    try:
+        for path in paths:
+            if STATE["refine_job"]["cancel_requested"]:
+                STATE["refine_job"]["status"] = "cancelled"
+                STATE["refine_job"]["current"] = None
+                return
+            item = STATE["results"].get(path)
+            if item is None or "error" in item:
+                STATE["refine_job"]["done"] += 1
+                continue
+            STATE["refine_job"]["current"] = path
+            try:
+                item["attributes"] = details_module.refine_attributes(Path(path), item["category_slug"])
+            except Exception as e:
+                item["attributes_error"] = str(e)
             STATE["refine_job"]["done"] += 1
-            continue
-        STATE["refine_job"]["current"] = path
-        try:
-            item["attributes"] = details_module.refine_attributes(Path(path), item["category_slug"])
-        except Exception as e:
-            item["attributes_error"] = str(e)
-        STATE["refine_job"]["done"] += 1
-    STATE["refine_job"]["current"] = None
-    STATE["refine_job"]["status"] = "done"
+        STATE["refine_job"]["current"] = None
+        STATE["refine_job"]["status"] = "done"
+    except Exception as e:
+        # Même filet que _run_analysis — sans lui un crash hors du try
+        # par-image bloque "status" sur "running" pour toujours.
+        STATE["refine_job"]["status"] = "error"
+        STATE["refine_job"]["current"] = str(e)
 
 
 @app.post("/api/refine/cancel")
