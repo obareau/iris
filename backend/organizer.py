@@ -5,6 +5,8 @@ import unicodedata
 from datetime import datetime
 from pathlib import Path
 
+import exif_writer
+
 LOG_DIR = Path(__file__).parent.parent / "data" / "logs"
 
 
@@ -106,6 +108,7 @@ def apply_moves(items: list[dict], dest_root: str) -> dict:
                     indent=2,
                 )
             )
+            exif_writer.write_exif(dest_path, item["category_label"], item.get("details"), attributes)
             log_entries.append({"from": str(src), "to": str(dest_path), "sidecar": str(sidecar_path)})
         except Exception as e:
             errors.append({"path": str(src), "error": str(e)})

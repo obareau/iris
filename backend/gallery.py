@@ -5,6 +5,7 @@ import numpy as np
 
 import classifier
 import details as details_module
+import exif_writer
 
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp"}
 
@@ -132,6 +133,7 @@ def set_rating(image_path: str, rating: int) -> None:
     existing = _read_sidecar(path)
     existing["rating"] = rating
     _write_sidecar(path, existing)
+    exif_writer.write_exif(path, existing.get("category_label"), existing.get("details"), existing.get("attributes"), rating)
 
 
 def backfill_details(folder: str, paths: list[str], progress: dict | None = None) -> None:
@@ -169,6 +171,7 @@ def backfill_details(folder: str, paths: list[str], progress: dict | None = None
                 "attributes": attributes,
             })
             _write_sidecar(path, existing)
+            exif_writer.write_exif(path, existing["category_label"], detail["text"], attributes, existing.get("rating", 0))
         except Exception as e:
             if progress is not None:
                 progress.setdefault("errors", []).append({"path": path_str, "error": str(e)})
@@ -205,6 +208,10 @@ def refine_attributes_for(folder: str, paths: list[str], progress: dict | None =
             )
             existing["attributes"] = details_module.refine_attributes(path, category_slug)
             _write_sidecar(path, existing)
+            exif_writer.write_exif(
+                path, existing.get("category_label"), existing.get("details"),
+                existing["attributes"], existing.get("rating", 0),
+            )
         except Exception as e:
             if progress is not None:
                 progress.setdefault("errors", []).append({"path": path_str, "error": str(e)})
