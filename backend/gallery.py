@@ -219,3 +219,35 @@ def refine_attributes_for(folder: str, paths: list[str], progress: dict | None =
             progress["done"] += 1
     if progress is not None:
         progress["current"] = None
+
+
+def taxonomy(folder: str, category: str | None = None) -> dict:
+    """Fréquence des valeurs d'attributs (passe 3) sur tout un dossier —
+    lecture pure des sidecars, aucun calcul de modèle, instantané même sur
+    un gros lot. Regroupé par label (ex: "Tenue" -> {"jacket": 12, ...}) pour
+    alimenter un nuage de mots par attribut plutôt qu'un fourre-tout unique.
+    Inclut aussi "Catégorie" comme pseudo-attribut, pour la même raison que
+    les autres : donner une vue d'ensemble de ce qui compose la bibliothèque."""
+    items = list_gallery(folder)
+    if category:
+        items = [i for i in items if i["category_label"] == category]
+
+    by_label: dict[str, dict[str, int]] = {}
+    for i in items:
+        cat = i.get("category_label")
+        if cat:
+            bucket = by_label.setdefault("Catégorie", {})
+            bucket[cat] = bucket.get(cat, 0) + 1
+        for a in i.get("attributes") or []:
+            label, value = a.get("label"), a.get("value")
+            if not label or not value:
+                continue
+            bucket = by_label.setdefault(label, {})
+            bucket[value] = bucket.get(value, 0) + 1
+
+    # Trie chaque groupe par fréquence décroissante — le nuage doit pouvoir
+    # afficher les N plus fréquents sans avoir à retrier côté client.
+    return {
+        label: sorted(({"value": v, "count": c} for v, c in values.items()), key=lambda x: -x["count"])
+        for label, values in by_label.items()
+    }

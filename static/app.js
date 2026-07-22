@@ -686,11 +686,12 @@ lightboxModal.addEventListener("click", (e) => { if (e.target === lightboxModal)
 document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !lightboxModal.hidden) closeLightbox(); });
 
 // ---------- Onglets Tri / Galerie ----------
-const views = { tri: $("view-tri"), galerie: $("view-galerie"), doublons: $("view-doublons"), graphe: $("view-graphe"), recta: $("view-recta") };
+const views = { tri: $("view-tri"), galerie: $("view-galerie"), doublons: $("view-doublons"), graphe: $("view-graphe"), recta: $("view-recta"), taxonomie: $("view-taxonomie") };
 views.galerie.style.display = "none"; // état initial : onglet Tri actif (le hidden HTML seul ne suffit pas, cf. commentaire ci-dessous)
 views.doublons.style.display = "none";
 views.graphe.style.display = "none";
 views.recta.style.display = "none";
+views.taxonomie.style.display = "none";
 document.querySelectorAll(".tab-btn").forEach(btn => {
   btn.addEventListener("click", () => {
     document.querySelectorAll(".tab-btn").forEach(b => b.classList.toggle("active", b === btn));
@@ -1806,5 +1807,95 @@ rectaLoadBtn.addEventListener("click", async () => {
     rectaCountsEl.textContent = `${posted.length} publiée${posted.length > 1 ? "s" : ""} / ${data.items.length} au total`;
   } finally {
     rectaLoadBtn.disabled = false;
+  }
+});
+
+// ---------- Taxonomie : nuage de mots par attribut (passe 3) ----------
+const taxoFolderEl = $("taxoFolder");
+const taxoLoadBtn = $("taxoLoadBtn");
+const taxoSummaryEl = $("taxoSummary");
+const taxoContentEl = $("taxoContent");
+const taxoEmptyEl = $("taxoEmpty");
+
+taxoFolderEl.value = localStorage.getItem(GAL_FOLDER_STORAGE_KEY) || CANONICAL_EXPORT_DIR;
+
+/** Bascule vers la Galerie, charge le même dossier, puis applique soit le
+ * filtre catégorie (pseudo-label "Catégorie"), soit un filtre d'attribut
+ * label/valeur — réutilise exactement le mécanisme de filtre déjà construit
+ * dans l'onglet Galerie, pas de logique dupliquée. */
+async function taxoJumpToGalerie(label, value) {
+  document.querySelectorAll(".tab-btn").forEach(b => b.classList.toggle("active", b.dataset.tab === "galerie"));
+  for (const [name, el] of Object.entries(views)) el.style.display = name === "galerie" ? "grid" : "none";
+
+  galFolderEl.value = taxoFolderEl.value.trim();
+  await galLoad();
+
+  if (label === "Catégorie") {
+    galFilterCatEl.value = value;
+    galActiveCat = value;
+    galApplyFilters();
+  } else {
+    galAttrLabelEl.value = label;
+    galRebuildAttrValueOptions();
+    galAttrValueEl.value = value;
+    if (!galAttrFilters.some(f => f.label === label && f.value === value)) {
+      galAttrFilters.push({ label, value });
+    }
+    galRenderAttrChips();
+    galApplyFilters();
+  }
+}
+
+function taxoRender(data) {
+  taxoContentEl.innerHTML = "";
+  const labels = Object.keys(data);
+  taxoEmptyEl.style.display = labels.length ? "none" : "";
+  if (!labels.length) return;
+
+  const totalTerms = labels.reduce((n, l) => n + data[l].length, 0);
+  taxoSummaryEl.textContent = `${labels.length} attributs · ${totalTerms} valeurs distinctes`;
+
+  for (const label of labels) {
+    const entries = data[label];
+    const maxCount = Math.max(...entries.map(e => e.count));
+    const minCount = Math.min(...entries.map(e => e.count));
+
+    const group = document.createElement("div");
+    group.className = "taxo-group";
+    const h = document.createElement("h3");
+    h.textContent = `${label} (${entries.length})`;
+    const cloud = document.createElement("div");
+    cloud.className = "taxo-cloud";
+
+    for (const { value, count } of entries.slice(0, 60)) {
+      const span = document.createElement("span");
+      span.className = "taxo-term";
+      // Échelle 13-30px — linéaire suffit ici (pas besoin de log, les
+      // écarts de fréquence par attribut restent modestes en pratique).
+      const t = maxCount === minCount ? 1 : (count - minCount) / (maxCount - minCount);
+      span.style.fontSize = `${13 + t * 17}px`;
+      span.innerHTML = `${value}<span class="taxo-count">${count}</span>`;
+      span.addEventListener("click", () => taxoJumpToGalerie(label, value));
+      cloud.appendChild(span);
+    }
+
+    group.appendChild(h);
+    group.appendChild(cloud);
+    taxoContentEl.appendChild(group);
+  }
+}
+
+taxoLoadBtn.addEventListener("click", async () => {
+  const folder = taxoFolderEl.value.trim();
+  if (!folder) { alert("Indique un dossier déjà classé."); return; }
+  taxoLoadBtn.disabled = true;
+  taxoSummaryEl.textContent = "Chargement…";
+  try {
+    const res = await fetch("/api/gallery/taxonomy?folder=" + encodeURIComponent(folder));
+    if (!res.ok) { taxoSummaryEl.textContent = "Erreur : " + (await res.text()); return; }
+    const data = await res.json();
+    taxoRender(data);
+  } finally {
+    taxoLoadBtn.disabled = false;
   }
 });

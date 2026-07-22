@@ -732,4 +732,9 @@ def gallery_similar(path: str, top_k: int = 5, min_similarity: float = 0.5):
         raise HTTPException(404, str(e))
 
 
+@app.get("/api/gallery/taxonomy")
+def gallery_taxonomy(folder: str, category: str | None = None):
+    return gallery_module.taxonomy(folder, category)
+
+
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")

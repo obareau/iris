@@ -19,6 +19,7 @@
       <button type="button" class="tab-btn" data-tab="doublons">Doublons</button>
       <button type="button" class="tab-btn" data-tab="graphe">Graphe</button>
       <button type="button" class="tab-btn" data-tab="recta">Recta</button>
+      <button type="button" class="tab-btn" data-tab="taxonomie">Taxonomie</button>
     </nav>
     <div class="global-progress" id="globalProgress">
       <div class="gp-head">
@@ -396,6 +397,30 @@
         </div>
       </div>
     </aside>
+  </div>
+
+  <!-- Vue Taxonomie : nuage de mots par attribut (passe 3), fréquence sur
+       tout le dossier — lecture pure des sidecars, instantané. Cliquer un
+       terme bascule vers la Galerie avec le filtre correspondant appliqué. -->
+  <div class="workspace" id="view-taxonomie" hidden>
+    <aside class="panel panel-left">
+      <section class="pblock">
+        <h3>Dossier</h3>
+        <label class="field">Photos classées
+          <div class="path-picker">
+            <input id="taxoFolder" type="text" placeholder="/home/olivier/renegats-photos/_classees" />
+            <button type="button" class="btn ghost" data-browse-target="taxoFolder">…</button>
+          </div>
+        </label>
+        <button id="taxoLoadBtn" class="btn primary full">Charger</button>
+        <small id="taxoSummary"></small>
+      </section>
+    </aside>
+
+    <main class="panel panel-center">
+      <div id="taxoContent" class="taxo-content"></div>
+      <div id="taxoEmpty" class="grid-empty">Charge un dossier pour voir la taxonomie.</div>
+    </main>
   </div>
 </div>
 
