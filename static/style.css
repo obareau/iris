@@ -554,6 +554,19 @@ textarea { resize: vertical; }
   display: inline-flex; align-items: center; gap: 4px;
 }
 
+/* Analyse croisée — onglet Taxonomie */
+.cross-table-wrap { overflow-x: auto; margin: 20px; max-width: calc(100% - 40px); }
+.cross-table { border-collapse: collapse; font-size: 12px; white-space: nowrap; }
+.cross-table th, .cross-table td {
+  border: 1px solid var(--border-soft);
+  padding: 6px 10px;
+  text-align: center;
+}
+.cross-table thead th { background: var(--bg-2); color: var(--muted); }
+.cross-table tbody th { background: var(--bg-2); color: var(--muted); text-align: left; }
+.cross-table td.zero { color: var(--border); }
+.cross-table td:not(.zero) { color: var(--text); font-weight: 600; }
+
 /* ---------- Modale ---------- */
 .modal {
   position: fixed; inset: 0;

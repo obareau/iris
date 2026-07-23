@@ -462,10 +462,21 @@
         <button type="button" class="btn ghost full" data-goto-tab="bibliotheque">Gérer les dossiers →</button>
         <small id="taxoSummary"></small>
       </section>
+      <section class="pblock">
+        <h3>Analyse croisée</h3>
+        <label class="field">Attribut A
+          <select id="taxoCrossA" class="select-sm" style="width:100%"></select>
+        </label>
+        <label class="field">Attribut B
+          <select id="taxoCrossB" class="select-sm" style="width:100%"></select>
+        </label>
+        <button id="taxoCrossBtn" class="btn full">Croiser</button>
+      </section>
     </aside>
 
     <main class="panel panel-center">
       <div id="taxoContent" class="taxo-content"></div>
+      <div id="taxoCrossResult"></div>
       <div id="taxoEmpty" class="grid-empty">Charge un dossier pour voir la taxonomie.</div>
     </main>
   </div>

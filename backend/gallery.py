@@ -295,27 +295,40 @@ def refine_attributes_for(paths: list[str], progress: dict | None = None) -> Non
         progress["current"] = None
 
 
+def _label_value_pairs(item: dict) -> list[tuple[str, str]]:
+    """Toutes les paires (label, valeur) d'un item — pseudo-attributs
+    (Catégorie, Faction devinée, Verdict canon, Personnage) + attributs
+    structurés de la passe 3. Partagé entre taxonomy() (nuage de mots) et
+    taxonomy_cross() (croisement de deux attributs) pour ne pas dupliquer
+    la liste des pseudo-attributs entre les deux."""
+    pairs = []
+    if item.get("category_label"):
+        pairs.append(("Catégorie", item["category_label"]))
+    if item.get("canon_faction"):
+        pairs.append(("Faction devinée", item["canon_faction"]))
+    if item.get("canon_verdict"):
+        pairs.append(("Verdict canon", item["canon_verdict"]))
+    if item.get("character_name"):
+        pairs.append(("Personnage", item["character_name"]))
+    for a in item.get("attributes") or []:
+        label, value = a.get("label"), a.get("value")
+        if label and value:
+            pairs.append((label, value))
+    return pairs
+
+
 def taxonomy(category: str | None = None) -> dict:
     """Fréquence des valeurs d'attributs (passe 3) sur toute la bibliothèque —
     lecture pure des sidecars, aucun calcul de modèle, instantané même sur
     un gros lot. Regroupé par label (ex: "Tenue" -> {"jacket": 12, ...}) pour
-    alimenter un nuage de mots par attribut plutôt qu'un fourre-tout unique.
-    Inclut aussi "Catégorie" comme pseudo-attribut, pour la même raison que
-    les autres : donner une vue d'ensemble de ce qui compose la bibliothèque."""
+    alimenter un nuage de mots par attribut plutôt qu'un fourre-tout unique."""
     items = list_gallery()
     if category:
         items = [i for i in items if i["category_label"] == category]
 
     by_label: dict[str, dict[str, int]] = {}
     for i in items:
-        cat = i.get("category_label")
-        if cat:
-            bucket = by_label.setdefault("Catégorie", {})
-            bucket[cat] = bucket.get(cat, 0) + 1
-        for a in i.get("attributes") or []:
-            label, value = a.get("label"), a.get("value")
-            if not label or not value:
-                continue
+        for label, value in _label_value_pairs(i):
             bucket = by_label.setdefault(label, {})
             bucket[value] = bucket.get(value, 0) + 1
 
@@ -325,6 +338,33 @@ def taxonomy(category: str | None = None) -> dict:
         label: sorted(({"value": v, "count": c} for v, c in values.items()), key=lambda x: -x["count"])
         for label, values in by_label.items()
     }
+
+
+def taxonomy_labels() -> list[str]:
+    """Labels disponibles pour l'analyse croisée — mêmes clés que taxonomy()."""
+    return sorted(taxonomy().keys())
+
+
+def taxonomy_cross(label_a: str, label_b: str) -> dict:
+    """Croise deux attributs (ou pseudo-attributs, ex: Faction devinée ×
+    Verdict canon) — utile pour repérer des incohérences en masse plutôt
+    qu'attribut par attribut. Une photo sans valeur pour l'un des deux labels
+    est simplement ignorée pour ce croisement."""
+    items = list_gallery()
+    counts: dict[tuple[str, str], int] = {}
+    for item in items:
+        values = dict(_label_value_pairs(item))
+        va, vb = values.get(label_a), values.get(label_b)
+        if not va or not vb:
+            continue
+        key = (va, vb)
+        counts[key] = counts.get(key, 0) + 1
+
+    rows = sorted({va for va, vb in counts})
+    cols = sorted({vb for va, vb in counts})
+    cells = [{"a": va, "b": vb, "count": c} for (va, vb), c in counts.items()]
+    cells.sort(key=lambda x: -x["count"])
+    return {"label_a": label_a, "label_b": label_b, "rows": rows, "cols": cols, "cells": cells}
 
 
 def score_aesthetic_for(paths: list[str], progress: dict | None = None) -> None:

@@ -2140,9 +2140,69 @@ const taxoLoadBtn = $("taxoLoadBtn");
 const taxoSummaryEl = $("taxoSummary");
 const taxoContentEl = $("taxoContent");
 const taxoEmptyEl = $("taxoEmpty");
+const taxoCrossA = $("taxoCrossA"), taxoCrossB = $("taxoCrossB"), taxoCrossBtn = $("taxoCrossBtn");
+const taxoCrossResultEl = $("taxoCrossResult");
 
 document.querySelector('.tab-btn[data-tab="taxonomie"]').addEventListener("click", () => {
   refreshLibSummaryEl(taxoLibSummary);
+  taxoPopulateCrossLabels();
+});
+
+async function taxoPopulateCrossLabels() {
+  const res = await fetch("/api/gallery/taxonomy/labels");
+  if (!res.ok) return;
+  const data = await res.json();
+  const opts = data.labels.map(l => `<option value="${l}">${l}</option>`).join("");
+  const prevA = taxoCrossA.value, prevB = taxoCrossB.value;
+  taxoCrossA.innerHTML = opts;
+  taxoCrossB.innerHTML = opts;
+  if (data.labels.includes(prevA)) taxoCrossA.value = prevA;
+  if (data.labels.includes(prevB)) taxoCrossB.value = prevB;
+  else if (data.labels.length > 1) taxoCrossB.selectedIndex = 1;
+}
+
+function taxoRenderCross(data) {
+  taxoCrossResultEl.innerHTML = "";
+  if (!data.rows.length || !data.cols.length) {
+    taxoCrossResultEl.textContent = "Aucune photo n'a ces deux attributs à la fois.";
+    return;
+  }
+  const cellMap = new Map(data.cells.map(c => [`${c.a}␟${c.b}`, c.count]));
+  const table = document.createElement("table");
+  table.className = "cross-table";
+  const thead = document.createElement("thead");
+  const headRow = document.createElement("tr");
+  headRow.innerHTML = `<th>${data.label_a} \\ ${data.label_b}</th>` + data.cols.map(c => `<th>${c}</th>`).join("");
+  thead.appendChild(headRow);
+  table.appendChild(thead);
+  const tbody = document.createElement("tbody");
+  for (const row of data.rows) {
+    const tr = document.createElement("tr");
+    const cellsHtml = data.cols.map(col => {
+      const count = cellMap.get(`${row}␟${col}`) || 0;
+      return `<td class="${count ? "" : "zero"}">${count || "·"}</td>`;
+    }).join("");
+    tr.innerHTML = `<th>${row}</th>${cellsHtml}`;
+    tbody.appendChild(tr);
+  }
+  table.appendChild(tbody);
+  const wrap = document.createElement("div");
+  wrap.className = "cross-table-wrap";
+  wrap.appendChild(table);
+  taxoCrossResultEl.appendChild(wrap);
+}
+
+taxoCrossBtn.addEventListener("click", async () => {
+  const labelA = taxoCrossA.value, labelB = taxoCrossB.value;
+  if (!labelA || !labelB) return;
+  taxoCrossBtn.disabled = true;
+  try {
+    const res = await fetch(`/api/gallery/taxonomy/cross?label_a=${encodeURIComponent(labelA)}&label_b=${encodeURIComponent(labelB)}`);
+    if (!res.ok) { alert("Erreur : " + (await res.text())); return; }
+    taxoRenderCross(await res.json());
+  } finally {
+    taxoCrossBtn.disabled = false;
+  }
 });
 
 /** Bascule vers la Galerie puis applique soit le filtre catégorie

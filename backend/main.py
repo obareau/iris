@@ -872,4 +872,14 @@ def gallery_taxonomy(category: str | None = None):
     return gallery_module.taxonomy(category)
 
 
+@app.get("/api/gallery/taxonomy/labels")
+def gallery_taxonomy_labels():
+    return {"labels": gallery_module.taxonomy_labels()}
+
+
+@app.get("/api/gallery/taxonomy/cross")
+def gallery_taxonomy_cross(label_a: str, label_b: str):
+    return gallery_module.taxonomy_cross(label_a, label_b)
+
+
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
