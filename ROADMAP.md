@@ -87,6 +87,14 @@ Suivi Argus.
 
 ## Reste ouvert
 
-- [ ] **Étendre le pipeline complet** (Phase 1) — "Tout faire d'un coup"
-      pourrait aussi inclure score esthétique + vérification canon en options,
-      pas seulement analyse→détails→attributs→applique.
+- [x] **Étendre le pipeline complet** (Phase 1) — le score esthétique était
+      déjà calculé automatiquement à l'application (`organizer.apply_moves`),
+      rien à ajouter là. Ajouté une case à cocher "Vérifier le canon après
+      application" (décochée par défaut — un appel Qwen2-VL par photo, plus
+      coûteux qu'un score esthétique). `organizer.apply_moves` renvoie
+      maintenant `applied_paths`, chaînés vers `/api/gallery/canon` si coché.
+      Testé en réel sur un dossier isolé : sidecar final avec aesthetic_score
+      ET canon_faction/verdict/clip_confidence en une seule passe. Fait le
+      2026-07-23.
+
+Roadmap initiale (Phases 1-3) intégralement traitée.

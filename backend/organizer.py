@@ -117,7 +117,12 @@ def apply_moves(items: list[dict], dest_root: str) -> dict:
     log_file = LOG_DIR / f"apply_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
     log_file.write_text(json.dumps(log_entries, ensure_ascii=False, indent=2))
 
-    return {"moved": len(log_entries), "errors": errors, "log_file": str(log_file)}
+    return {
+        "moved": len(log_entries),
+        "errors": errors,
+        "log_file": str(log_file),
+        "applied_paths": [e["to"] for e in log_entries],
+    }
 
 
 def last_log() -> Path | None:

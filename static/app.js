@@ -473,6 +473,7 @@ async function pollRefine() {
 const pipelineBtn = $("pipelineBtn");
 const pipelineCancelBtn = $("pipelineCancelBtn");
 const pipelineStatusEl = $("pipelineStatus");
+const pipelineCanonCheck = $("pipelineCanonCheck");
 
 /** Démarre un job (POST) puis attend qu'il quitte l'état "running" en
  * réinterrogeant sa progress-route — factorise ce que chaque bouton
@@ -501,10 +502,11 @@ async function pipelineRunStep(label, startUrl, startBody, progressUrl, onProgre
 
 pipelineCancelBtn.addEventListener("click", () => {
   // On ne sait pas forcément quelle étape tourne au moment du clic —
-  // annuler les trois est sans risque, les jobs inactifs répondent en no-op.
+  // annuler les quatre est sans risque, les jobs inactifs répondent en no-op.
   fetch("/api/analyze/cancel", { method: "POST" });
   fetch("/api/extract-details/cancel", { method: "POST" });
   fetch("/api/refine/cancel", { method: "POST" });
+  fetch("/api/gallery/canon/cancel", { method: "POST" });
 });
 
 pipelineBtn.addEventListener("click", async () => {
@@ -572,8 +574,18 @@ pipelineBtn.addEventListener("click", async () => {
       body: JSON.stringify({ dest_root: dest }),
     });
     const applyData = await applyRes.json();
-    pipelineStatusEl.textContent = `Terminé — ${applyData.moved} image(s) classée(s) et déplacée(s)`
+    let statusMsg = `Terminé — ${applyData.moved} image(s) classée(s) et déplacée(s)`
       + (applyData.errors?.length ? ` · ${applyData.errors.length} erreur(s)` : "");
+
+    if (pipelineCanonCheck.checked && applyData.applied_paths?.length) {
+      const canonPaths = applyData.applied_paths;
+      await pipelineRunStep(
+        "Vérification du canon", "/api/gallery/canon", { paths: canonPaths }, "/api/gallery/canon-progress",
+        (p) => updateGlobal("Vérification du canon", p.done, p.total)
+      );
+      statusMsg += ` · canon vérifié sur ${canonPaths.length} photo(s)`;
+    }
+    pipelineStatusEl.textContent = statusMsg;
 
     itemsByPath.clear(); order = []; cardByPath.clear();
     gridEl.innerHTML = ""; selectedPath = null;

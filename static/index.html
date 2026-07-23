@@ -80,7 +80,11 @@
 
       <section class="pblock">
         <h3>Pipeline complet</h3>
-        <small>Analyse → détails → attributs → applique automatiquement, sans repasser par chaque bouton — utile sur un gros import.</small>
+        <small>Analyse → détails → attributs → applique automatiquement, sans repasser par chaque bouton — utile sur un gros import. Le score esthétique est déjà calculé automatiquement à l'application.</small>
+        <label class="field-check" style="margin-top:8px">
+          <input type="checkbox" id="pipelineCanonCheck" />
+          Vérifier le canon après application <small>(devine la faction + Qwen2-VL — plus lent, un appel par photo)</small>
+        </label>
         <button id="pipelineBtn" class="btn primary full" style="margin-top:8px">Tout faire d'un coup</button>
         <button id="pipelineCancelBtn" class="btn ghost full" hidden>Annuler le pipeline</button>
         <div class="status-line" id="pipelineStatus"></div>
