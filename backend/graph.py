@@ -44,18 +44,19 @@ def build_topk_graph(items: list[dict], embeddings: dict[str, np.ndarray], top_k
 
 
 def build_similarity_graph(
-    folder: str,
     category: str | None = None,
     top_k: int = 5,
     min_similarity: float = 0.75,
     progress: dict | None = None,
 ) -> dict:
-    """Graphe de similarité visuelle — nœuds = photos, arêtes = les top_k
-    voisins les plus proches (similarité cosinus sur les embeddings CLIP,
-    même cache que Doublons/passe 1) au-dessus de min_similarity. Contrairement
-    à Doublons (qui ne garde que les quasi-identiques), ceci révèle des
-    regroupements thématiques plus larges (même style, même personnage...)."""
-    items = gallery_module.list_gallery(folder)
+    """Graphe de similarité visuelle sur toute la bibliothèque (voir
+    library.py — plusieurs dossiers possibles) — nœuds = photos, arêtes = les
+    top_k voisins les plus proches (similarité cosinus sur les embeddings
+    CLIP, même cache que Doublons/passe 1) au-dessus de min_similarity.
+    Contrairement à Doublons (qui ne garde que les quasi-identiques), ceci
+    révèle des regroupements thématiques plus larges (même style, même
+    personnage...)."""
+    items = gallery_module.list_gallery()
     if category:
         items = [i for i in items if i["category_label"] == category]
     if progress is not None:
@@ -82,16 +83,14 @@ def build_similarity_graph(
 
 
 def similar_images(path: str, top_k: int = 5, min_similarity: float = 0.5) -> list[dict]:
-    """Voisins les plus proches d'UNE photo précise, dans son propre dossier
-    _classees (déduit du chemin) — utilisé par le MCP (iris_similar_images)
-    pour répondre à "trouve-moi des images qui ressemblent à celle-ci"."""
+    """Voisins les plus proches d'UNE photo précise, sur toute la bibliothèque
+    (plusieurs dossiers possibles, voir library.py) — utilisé par le MCP
+    (iris_similar_images) pour répondre à "trouve-moi des images qui
+    ressemblent à celle-ci"."""
     p = Path(path)
     if not p.is_file():
         raise FileNotFoundError(f"Fichier introuvable: {p}")
-    # Remonte jusqu'au dossier qui contient les sous-dossiers de catégories
-    # (typiquement 3 niveaux : Categorie/Couleur/Format/fichier.jpg).
-    root = p.parent.parent.parent if len(p.parts) > 3 else p.parent
-    items = gallery_module.list_gallery(str(root))
+    items = gallery_module.list_gallery()
     paths_with_stat = [(Path(i["path"]), Path(i["path"]).stat().st_mtime, Path(i["path"]).stat().st_size) for i in items]
     embeddings = classifier.batch_image_embeddings(paths_with_stat)
 

@@ -8,6 +8,7 @@ import canon
 import classifier
 import details as details_module
 import exif_writer
+import library
 
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp"}
 
@@ -30,38 +31,56 @@ def _read_sidecar(image_path: Path) -> dict:
         return {}
 
 
-def list_gallery(folder: str) -> list[dict]:
-    """Parcourt récursivement `folder` (typiquement _classees) et renvoie une
-    entrée par image, enrichie du sidecar écrit par organizer.apply_moves
-    quand il existe (catégorie, détails, attributs, marqueur renegat_posted).
-    Sans sidecar (photo déposée manuellement, ou classée avant ce système),
-    on retombe sur le nom du premier sous-dossier comme catégorie."""
-    root = Path(folder)
-    if not root.is_dir():
-        return []
-
-    items = []
-    for p in sorted(root.rglob("*")):
-        if not p.is_file() or p.suffix.lower() not in IMAGE_EXTS:
+def _root_for(path: Path, roots: list[Path]) -> Path | None:
+    """Trouve, parmi les dossiers de la bibliothèque, celui qui contient
+    réellement `path` — nécessaire dès qu'on a plusieurs racines : le nom du
+    premier sous-dossier relatif (catégorie de repli) dépend de la bonne
+    racine, pas de n'importe laquelle."""
+    for root in roots:
+        try:
+            path.relative_to(root)
+            return root
+        except ValueError:
             continue
-        sidecar = _read_sidecar(p)
-        rel_parts = p.relative_to(root).parts
-        fallback_category = rel_parts[0] if len(rel_parts) > 1 else None
-        items.append({
-            "path": str(p),
-            "category_label": sidecar.get("category_label") or fallback_category or "?",
-            "category_slug": sidecar.get("category_slug"),
-            "details": sidecar.get("details"),
-            "attributes": sidecar.get("attributes", []),
-            "applied_at": sidecar.get("applied_at"),
-            "renegat_posted": sidecar.get("renegat_posted"),
-            "has_sidecar": bool(sidecar),
-            "rating": sidecar.get("rating", 0),
-            "aesthetic_score": sidecar.get("aesthetic_score"),
-            "canon_faction": sidecar.get("canon_faction"),
-            "canon_verdict": sidecar.get("canon_verdict"),
-            "canon_reason": sidecar.get("canon_reason"),
-        })
+    return None
+
+
+def list_gallery() -> list[dict]:
+    """Parcourt récursivement tous les dossiers de la bibliothèque (voir
+    library.py — plusieurs racines possibles, comme un catalogue Lightroom)
+    et renvoie une entrée par image, enrichie du sidecar écrit par
+    organizer.apply_moves quand il existe (catégorie, détails, attributs,
+    marqueur renegat_posted). Sans sidecar (photo déposée manuellement, ou
+    classée avant ce système), on retombe sur le nom du premier sous-dossier
+    comme catégorie. Chaque item porte aussi `source_folder`, pour que l'UI
+    puisse indiquer de quelle racine vient une photo."""
+    items = []
+    for folder in library.list_folders():
+        root = Path(folder)
+        if not root.is_dir():
+            continue
+        for p in sorted(root.rglob("*")):
+            if not p.is_file() or p.suffix.lower() not in IMAGE_EXTS:
+                continue
+            sidecar = _read_sidecar(p)
+            rel_parts = p.relative_to(root).parts
+            fallback_category = rel_parts[0] if len(rel_parts) > 1 else None
+            items.append({
+                "path": str(p),
+                "source_folder": str(root),
+                "category_label": sidecar.get("category_label") or fallback_category or "?",
+                "category_slug": sidecar.get("category_slug"),
+                "details": sidecar.get("details"),
+                "attributes": sidecar.get("attributes", []),
+                "applied_at": sidecar.get("applied_at"),
+                "renegat_posted": sidecar.get("renegat_posted"),
+                "has_sidecar": bool(sidecar),
+                "rating": sidecar.get("rating", 0),
+                "aesthetic_score": sidecar.get("aesthetic_score"),
+                "canon_faction": sidecar.get("canon_faction"),
+                "canon_verdict": sidecar.get("canon_verdict"),
+                "canon_reason": sidecar.get("canon_reason"),
+            })
     return items
 
 
@@ -81,8 +100,10 @@ def get_item(path: str) -> dict:
     # (moins fiable que list_gallery's rel_parts[0], mais get_item ne sert
     # qu'aux photos déjà documentées — le cas sans sidecar y est marginal).
     fallback_category = p.parent.parent.parent.name if len(p.parts) > 3 else p.parent.name
+    source_root = _root_for(p, [Path(f) for f in library.list_folders()])
     return {
         "path": str(p),
+        "source_folder": str(source_root) if source_root else None,
         "category_label": sidecar.get("category_label") or fallback_category,
         "category_slug": sidecar.get("category_slug"),
         "details": sidecar.get("details"),
@@ -98,7 +119,6 @@ def get_item(path: str) -> dict:
 
 
 def semantic_search(
-    folder: str,
     query: str,
     category: str | None = None,
     min_rating: int = 0,
@@ -108,7 +128,7 @@ def semantic_search(
     ressemble à X" plutôt qu'à une sous-chaîne exacte dans les attributs.
     Réutilise les mêmes embeddings mis en cache par la passe 1 / Doublons
     (data/embeddings.sqlite3) : une image déjà vue ne recoûte rien."""
-    items = list_gallery(folder)
+    items = list_gallery()
     if category:
         items = [i for i in items if i["category_label"] == category]
     if min_rating:
@@ -150,12 +170,12 @@ def set_rating(image_path: str, rating: int) -> None:
     )
 
 
-def backfill_details(folder: str, paths: list[str], progress: dict | None = None) -> None:
+def backfill_details(paths: list[str], progress: dict | None = None) -> None:
     """Extrait détails (passe 2) + attributs (passe 3) pour des photos déjà
     classées qui n'ont pas de sidecar (ou qui en ont un incomplet) — comble
     le manque pour les images triées avant ce système, sans repasser par
     tout le pipeline scan/analyze/apply (le fichier est déjà à sa place)."""
-    root = Path(folder)
+    roots = [Path(f) for f in library.list_folders()]
     if progress is not None:
         progress["total"] = len(paths)
         progress["done"] = 0
@@ -170,7 +190,8 @@ def backfill_details(folder: str, paths: list[str], progress: dict | None = None
             progress["current"] = path_str
         try:
             existing = json.loads(path.with_suffix(".json").read_text()) if path.with_suffix(".json").is_file() else {}
-            rel_parts = path.relative_to(root).parts
+            root = _root_for(path, roots)
+            rel_parts = path.relative_to(root).parts if root else ()
             fallback_category = rel_parts[0] if len(rel_parts) > 1 else "?"
             rel_category = existing.get("category_label") or fallback_category
             category_slug = existing.get("category_slug") or _LABEL_TO_SLUG.get(rel_category, "autre")
@@ -199,12 +220,12 @@ def backfill_details(folder: str, paths: list[str], progress: dict | None = None
         progress["current"] = None
 
 
-def refine_attributes_for(folder: str, paths: list[str], progress: dict | None = None) -> None:
+def refine_attributes_for(paths: list[str], progress: dict | None = None) -> None:
     """Force une repasse de passe 3 (attributs) sur des photos DÉJÀ classées
     et déjà documentées — utile quand ATTRIBUTE_SCHEMAS gagne une clé (ex:
     Pose/posture) après coup : backfill_details() saute les photos qui ont
     déjà des attributs, celle-ci les réaffine quand même et écrase le champ."""
-    root = Path(folder)
+    roots = [Path(f) for f in library.list_folders()]
     if progress is not None:
         progress["total"] = len(paths)
         progress["done"] = 0
@@ -219,7 +240,8 @@ def refine_attributes_for(folder: str, paths: list[str], progress: dict | None =
             progress["current"] = path_str
         try:
             existing = json.loads(path.with_suffix(".json").read_text()) if path.with_suffix(".json").is_file() else {}
-            rel_parts = path.relative_to(root).parts
+            root = _root_for(path, roots)
+            rel_parts = path.relative_to(root).parts if root else ()
             fallback_category = rel_parts[0] if len(rel_parts) > 1 else "?"
             category_slug = existing.get("category_slug") or _LABEL_TO_SLUG.get(
                 existing.get("category_label") or fallback_category, "autre"
@@ -240,14 +262,14 @@ def refine_attributes_for(folder: str, paths: list[str], progress: dict | None =
         progress["current"] = None
 
 
-def taxonomy(folder: str, category: str | None = None) -> dict:
-    """Fréquence des valeurs d'attributs (passe 3) sur tout un dossier —
+def taxonomy(category: str | None = None) -> dict:
+    """Fréquence des valeurs d'attributs (passe 3) sur toute la bibliothèque —
     lecture pure des sidecars, aucun calcul de modèle, instantané même sur
     un gros lot. Regroupé par label (ex: "Tenue" -> {"jacket": 12, ...}) pour
     alimenter un nuage de mots par attribut plutôt qu'un fourre-tout unique.
     Inclut aussi "Catégorie" comme pseudo-attribut, pour la même raison que
     les autres : donner une vue d'ensemble de ce qui compose la bibliothèque."""
-    items = list_gallery(folder)
+    items = list_gallery()
     if category:
         items = [i for i in items if i["category_label"] == category]
 
@@ -272,7 +294,7 @@ def taxonomy(folder: str, category: str | None = None) -> dict:
     }
 
 
-def score_aesthetic_for(folder: str, paths: list[str], progress: dict | None = None) -> None:
+def score_aesthetic_for(paths: list[str], progress: dict | None = None) -> None:
     """Calcule le score esthétique (aesthetic.py) pour des photos déjà
     classées — retombe sur les embeddings CLIP déjà en cache (passe 1),
     donc rapide même sur un gros lot déjà analysé."""
@@ -306,7 +328,7 @@ def score_aesthetic_for(folder: str, paths: list[str], progress: dict | None = N
         progress["current"] = None
 
 
-def check_canon_for(folder: str, paths: list[str], progress: dict | None = None) -> None:
+def check_canon_for(paths: list[str], progress: dict | None = None) -> None:
     """Devine la faction du personnage par CLIP zero-shot (canon.guess_faction),
     puis fait lire l'image + le lore de cette faction à Qwen2-VL pour un verdict
     (canon.check_canon) — écrit les deux dans le sidecar + EXIF, comme

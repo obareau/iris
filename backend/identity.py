@@ -51,14 +51,14 @@ def _face_embedding(path: Path):
 
 
 def build_identity_graph(
-    folder: str,
     top_k: int = 5,
     min_similarity: float = 0.85,
     progress: dict | None = None,
 ) -> dict:
-    """Limité à la catégorie Personnes — l'identité récurrente n'a de sens
-    que pour des personnages, pas des paysages/objets."""
-    items = gallery_module.list_gallery(folder)
+    """Sur toute la bibliothèque (plusieurs dossiers possibles, voir
+    library.py). Limité à la catégorie Personnes — l'identité récurrente n'a
+    de sens que pour des personnages, pas des paysages/objets."""
+    items = gallery_module.list_gallery()
     items = [i for i in items if i["category_label"] == "Personnes"]
     if progress is not None:
         progress["total"] = len(items)

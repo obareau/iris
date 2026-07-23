@@ -686,26 +686,101 @@ lightboxModal.addEventListener("click", (e) => { if (e.target === lightboxModal)
 document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !lightboxModal.hidden) closeLightbox(); });
 
 // ---------- Onglets Tri / Galerie ----------
-const views = { tri: $("view-tri"), galerie: $("view-galerie"), doublons: $("view-doublons"), graphe: $("view-graphe"), recta: $("view-recta"), taxonomie: $("view-taxonomie") };
-views.galerie.style.display = "none"; // état initial : onglet Tri actif (le hidden HTML seul ne suffit pas, cf. commentaire ci-dessous)
+const views = {
+  tri: $("view-tri"), bibliotheque: $("view-bibliotheque"), galerie: $("view-galerie"),
+  doublons: $("view-doublons"), graphe: $("view-graphe"), recta: $("view-recta"), taxonomie: $("view-taxonomie"),
+};
+views.bibliotheque.style.display = "none"; // état initial : onglet Tri actif (le hidden HTML seul ne suffit pas, cf. commentaire ci-dessous)
+views.galerie.style.display = "none";
 views.doublons.style.display = "none";
 views.graphe.style.display = "none";
 views.recta.style.display = "none";
 views.taxonomie.style.display = "none";
+
+function switchToTab(name) {
+  const btn = document.querySelector(`.tab-btn[data-tab="${name}"]`);
+  if (!btn) return;
+  document.querySelectorAll(".tab-btn").forEach(b => b.classList.toggle("active", b === btn));
+  for (const [n, el] of Object.entries(views)) {
+    el.style.display = n === name ? "grid" : "none";
+  }
+}
+
 document.querySelectorAll(".tab-btn").forEach(btn => {
-  btn.addEventListener("click", () => {
-    document.querySelectorAll(".tab-btn").forEach(b => b.classList.toggle("active", b === btn));
-    // `.workspace{display:grid}` a la même spécificité que `[hidden]` de la
-    // feuille UA et gagne (règle auteur après règle UA) — piloter `display`
-    // directement plutôt que l'attribut hidden qui n'aurait aucun effet ici.
-    for (const [name, el] of Object.entries(views)) {
-      el.style.display = name === btn.dataset.tab ? "grid" : "none";
-    }
-  });
+  btn.addEventListener("click", () => switchToTab(btn.dataset.tab));
+});
+document.querySelectorAll("[data-goto-tab]").forEach(btn => {
+  btn.addEventListener("click", () => switchToTab(btn.dataset.gotoTab));
+});
+
+// ---------- Bibliothèque (catalogue multi-dossiers, à la Lightroom) ----------
+// Remplace le champ "dossier unique" qu'avaient Galerie/Doublons/Graphe/
+// Taxonomie/Recta : ces onglets chargent désormais l'union de tous les
+// dossiers listés ici, sans qu'on ait à retaper un chemin à chaque fois.
+async function libFolders() {
+  const res = await fetch("/api/library");
+  const data = await res.json();
+  return data.folders || [];
+}
+
+function libSummaryText(folders) {
+  if (!folders.length) return "Aucun dossier — onglet Bibliothèque pour en ajouter.";
+  return `${folders.length} dossier${folders.length > 1 ? "s" : ""} : ` + folders.map(f => f.split("/").pop()).join(", ");
+}
+
+async function refreshLibSummaryEl(el) {
+  const folders = await libFolders();
+  if (el) el.textContent = libSummaryText(folders);
+  return folders;
+}
+
+const libNewFolderEl = $("libNewFolder");
+const libAddBtn = $("libAddBtn");
+const libListEl = $("libList");
+const libEmptyEl = $("libEmpty");
+
+async function libRender() {
+  const folders = await libFolders();
+  libListEl.innerHTML = "";
+  libEmptyEl.style.display = folders.length ? "none" : "";
+  for (const folder of folders) {
+    const row = document.createElement("div");
+    row.className = "lib-row";
+    row.innerHTML = `
+      <div class="lib-row-path">📁 ${folder}</div>
+      <button type="button" class="btn ghost" style="color:var(--err);border-color:var(--err)">Retirer</button>
+    `;
+    row.querySelector("button").addEventListener("click", async () => {
+      await fetch("/api/library/remove", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path: folder }),
+      });
+      libRender();
+    });
+    libListEl.appendChild(row);
+  }
+}
+libRender();
+
+libAddBtn.addEventListener("click", async () => {
+  const path = libNewFolderEl.value.trim();
+  if (!path) return;
+  libAddBtn.disabled = true;
+  try {
+    const res = await fetch("/api/library/add", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path }),
+    });
+    if (!res.ok) { alert("Erreur : " + (await res.text())); return; }
+    libNewFolderEl.value = "";
+    libRender();
+  } finally {
+    libAddBtn.disabled = false;
+  }
 });
 
 // ---------- Galerie ----------
-const galFolderEl = $("galFolder");
+const galLibSummary = $("galLibSummary");
 const galLoadBtn = $("galLoadBtn");
 const galFilterCatEl = $("galFilterCat");
 const galSearchEl = $("galSearch");
@@ -714,6 +789,7 @@ const galGridEl = $("galGrid");
 const galEmptyEl = $("galEmpty");
 const galInspEmpty = $("galInspEmpty"), galInspBody = $("galInspBody");
 const galInspImg = $("galInspImg"), galInspName = $("galInspName"), galInspCat = $("galInspCat");
+const galInspSource = $("galInspSource");
 const galInspDetails = $("galInspDetails");
 const galInspAttrSection = $("galInspAttrSection"), galInspAttrs = $("galInspAttrs");
 const galInspAesthetic = $("galInspAesthetic");
@@ -733,17 +809,6 @@ let galItemsByPath = new Map();
 let galCardByPath = new Map();
 let galSelectedPath = null;
 let galActiveCat = "";
-
-// La galerie retient le dernier dossier chargé avec succès (localStorage) —
-// pré-rempli au chargement de la page, avant même tout clic. À défaut, se
-// rabat sur le dossier destination du tri au premier focus.
-const GAL_FOLDER_STORAGE_KEY = "iris.galFolder";
-const galLastFolder = localStorage.getItem(GAL_FOLDER_STORAGE_KEY);
-if (galLastFolder) galFolderEl.value = galLastFolder;
-
-galFolderEl.addEventListener("focus", () => {
-  if (!galFolderEl.value && destEl.value) galFolderEl.value = destEl.value;
-}, { once: true });
 
 function galMatchesSearch(item, needle) {
   if (!needle) return true;
@@ -820,6 +885,14 @@ function galMakeCard(item) {
   card.appendChild(imgWrap);
   card.appendChild(foot);
 
+  if (item.source_folder) {
+    const badge = document.createElement("div");
+    badge.className = "source-badge";
+    badge.textContent = "📁 " + item.source_folder.split("/").pop();
+    badge.title = item.source_folder;
+    card.appendChild(badge);
+  }
+
   // Attributs passe 3 visibles sans avoir à cliquer chaque vignette — ligne
   // compacte (valeurs seules) + tooltip natif avec le détail label:valeur.
   if (item.attributes && item.attributes.length) {
@@ -841,6 +914,8 @@ function galRenderInspector(item) {
   galInspImg.src = "/api/thumbnail?path=" + encodeURIComponent(item.path);
   galInspName.textContent = item.path.split("/").pop();
   galInspCat.textContent = item.category_label || "—";
+  galInspSource.textContent = item.source_folder ? item.source_folder.split("/").pop() : "—";
+  galInspSource.title = item.source_folder || "";
   galInspDetails.textContent = item.details || "—";
 
   if (item.attributes && item.attributes.length) {
@@ -917,14 +992,13 @@ function galSelectImage(path) {
 }
 
 async function galLoad() {
-  const folder = galFolderEl.value.trim();
-  if (!folder) { alert("Indique un dossier déjà classé (ex: .../_classees)."); return; }
+  const folders = await refreshLibSummaryEl(galLibSummary);
+  if (!folders.length) { alert("Ajoute d'abord un dossier dans l'onglet Bibliothèque."); return; }
   galLoadBtn.disabled = true;
   galCountsEl.textContent = "Chargement…";
   try {
-    const res = await fetch("/api/gallery?folder=" + encodeURIComponent(folder));
+    const res = await fetch("/api/gallery");
     if (!res.ok) { galCountsEl.textContent = "Erreur: " + (await res.text()); return; }
-    localStorage.setItem(GAL_FOLDER_STORAGE_KEY, folder);
     const data = await res.json();
     galItems = data.items;
     galItemsByPath = new Map(galItems.map(i => [i.path, i]));
@@ -1028,16 +1102,15 @@ function galRenderSemanticResults(items, query) {
 }
 
 galSemanticBtn.addEventListener("click", async () => {
-  const folder = galFolderEl.value.trim();
   const query = galSearchEl.value.trim();
-  if (!folder) { alert("Charge d'abord un dossier."); return; }
+  if (!galItems.length) { alert("Charge d'abord la bibliothèque."); return; }
   if (!query) { alert("Tape une description dans le champ recherche."); return; }
   galSemanticBtn.disabled = true;
   galCountsEl.textContent = "Recherche sémantique en cours…";
   try {
     const res = await fetch("/api/gallery/search", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ folder, query, category: galActiveCat || null, top_k: 30 }),
+      body: JSON.stringify({ query, category: galActiveCat || null, top_k: 30 }),
     });
     if (!res.ok) { galCountsEl.textContent = "Erreur : " + (await res.text()); return; }
     const data = await res.json();
@@ -1077,8 +1150,7 @@ async function galBackfillPoll() {
 }
 
 galBackfillBtn.addEventListener("click", async () => {
-  const folder = galFolderEl.value.trim();
-  if (!folder) { alert("Charge d'abord un dossier."); return; }
+  if (!galItems.length) { alert("Charge d'abord la bibliothèque."); return; }
   const visible = galVisiblePaths();
   const missing = visible.filter(p => !galItemsByPath.get(p).details);
   if (!missing.length) { galBackfillCount.textContent = "Rien à compléter (vue actuelle)"; return; }
@@ -1089,7 +1161,7 @@ galBackfillBtn.addEventListener("click", async () => {
   setBar(galBackfillFill, 0, 1);
   const res = await fetch("/api/gallery/backfill", {
     method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ folder, paths: missing }),
+    body: JSON.stringify({ paths: missing }),
   });
   if (!res.ok) {
     galBackfillCount.textContent = "Erreur : " + (await res.text());
@@ -1342,7 +1414,7 @@ galBulkRefineBtn.addEventListener("click", async () => {
   galBulkRefineBtn.textContent = "Réaffinage…";
   const res = await fetch("/api/gallery/refine", {
     method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ folder: galFolderEl.value.trim(), paths }),
+    body: JSON.stringify({ paths }),
   });
   if (!res.ok) {
     alert("Erreur : " + (await res.text()));
@@ -1384,7 +1456,7 @@ galBulkAestheticBtn.addEventListener("click", async () => {
   galBulkAestheticBtn.textContent = "Score en cours…";
   const res = await fetch("/api/gallery/aesthetic", {
     method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ folder: galFolderEl.value.trim(), paths }),
+    body: JSON.stringify({ paths }),
   });
   if (!res.ok) {
     alert("Erreur : " + (await res.text()));
@@ -1426,7 +1498,7 @@ galBulkCanonBtn.addEventListener("click", async () => {
   galBulkCanonBtn.textContent = "Vérification…";
   const res = await fetch("/api/gallery/canon", {
     method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ folder: galFolderEl.value.trim(), paths }),
+    body: JSON.stringify({ paths }),
   });
   if (!res.ok) {
     alert("Erreur : " + (await res.text()));
@@ -1438,7 +1510,7 @@ galBulkCanonBtn.addEventListener("click", async () => {
 });
 
 // ---------- Doublons / images similaires ----------
-const dedupeFolderEl = $("dedupeFolder");
+const dedupeLibSummary = $("dedupeLibSummary");
 const dedupeFilterCatEl = $("dedupeFilterCat");
 const dedupeThresholdEl = $("dedupeThreshold");
 const dedupeThresholdVal = $("dedupeThresholdVal");
@@ -1454,16 +1526,12 @@ dedupeThresholdEl.addEventListener("input", () => {
   dedupeThresholdVal.textContent = (dedupeThresholdEl.value / 100).toFixed(2);
 });
 
-dedupeFolderEl.value = localStorage.getItem(GAL_FOLDER_STORAGE_KEY) || CANONICAL_EXPORT_DIR;
-
-// Peuple le filtre catégorie dès que le dossier est saisi — lecture seule
-// des sidecars/dossiers, aucun calcul de modèle (rapide, pas besoin d'un
-// bouton dédié).
+// Peuple le filtre catégorie à l'entrée sur l'onglet — lecture seule des
+// sidecars/dossiers, aucun calcul de modèle (rapide, pas besoin d'un bouton
+// dédié).
 async function dedupeRefreshCategories() {
-  const folder = dedupeFolderEl.value.trim();
-  if (!folder) return;
   try {
-    const res = await fetch("/api/gallery?folder=" + encodeURIComponent(folder));
+    const res = await fetch("/api/gallery");
     if (!res.ok) return;
     const data = await res.json();
     const current = dedupeFilterCatEl.value;
@@ -1473,7 +1541,10 @@ async function dedupeRefreshCategories() {
     dedupeFilterCatEl.value = current;
   } catch (e) { /* silencieux : la détection tournera sans filtre pré-rempli */ }
 }
-dedupeFolderEl.addEventListener("blur", dedupeRefreshCategories);
+document.querySelector('.tab-btn[data-tab="doublons"]').addEventListener("click", () => {
+  refreshLibSummaryEl(dedupeLibSummary);
+  dedupeRefreshCategories();
+});
 
 function dedupeMakeThumb(path) {
   const thumb = document.createElement("div");
@@ -1574,8 +1645,8 @@ async function dedupePoll() {
 }
 
 dedupeBtn.addEventListener("click", async () => {
-  const folder = dedupeFolderEl.value.trim();
-  if (!folder) { alert("Indique un dossier déjà classé."); return; }
+  const folders = await libFolders();
+  if (!folders.length) { alert("Ajoute d'abord un dossier dans l'onglet Bibliothèque."); return; }
   dedupeBtn.disabled = true;
   dedupeFill.classList.remove("done");
   setBar(dedupeFill, 0, 1);
@@ -1586,7 +1657,6 @@ dedupeBtn.addEventListener("click", async () => {
   const res = await fetch("/api/dedupe", {
     method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      folder,
       threshold: dedupeThresholdEl.value / 100,
       category: dedupeFilterCatEl.value || null,
     }),
@@ -1600,7 +1670,7 @@ dedupeBtn.addEventListener("click", async () => {
 });
 
 // ---------- Graphe de similarité (nœuds = photos, arêtes = similarité CLIP) ----------
-const graphFolderEl = $("graphFolder");
+const graphLibSummary = $("graphLibSummary");
 const graphModeEl = $("graphMode");
 const graphCatField = $("graphCatField");
 const graphFilterCatEl = $("graphFilterCat");
@@ -1633,14 +1703,10 @@ wireCancelBtn(graphCancelBtn, "/api/gallery/graph/cancel");
 graphTopKEl.addEventListener("input", () => { graphTopKVal.textContent = graphTopKEl.value; });
 graphThresholdEl.addEventListener("input", () => { graphThresholdVal.textContent = (graphThresholdEl.value / 100).toFixed(2); });
 
-graphFolderEl.value = localStorage.getItem(GAL_FOLDER_STORAGE_KEY) || CANONICAL_EXPORT_DIR;
-
 // Peuple le filtre catégorie sans calcul de modèle (même logique que Doublons).
 async function graphRefreshCategories() {
-  const folder = graphFolderEl.value.trim();
-  if (!folder) return;
   try {
-    const res = await fetch("/api/gallery?folder=" + encodeURIComponent(folder));
+    const res = await fetch("/api/gallery");
     if (!res.ok) return;
     const data = await res.json();
     const current = graphFilterCatEl.value;
@@ -1650,7 +1716,10 @@ async function graphRefreshCategories() {
     graphFilterCatEl.value = current;
   } catch (e) { /* silencieux */ }
 }
-graphFolderEl.addEventListener("blur", graphRefreshCategories);
+document.querySelector('.tab-btn[data-tab="graphe"]').addEventListener("click", () => {
+  refreshLibSummaryEl(graphLibSummary);
+  graphRefreshCategories();
+});
 
 function graphSelectNode(path, catLabel) {
   graphInspEmpty.hidden = true;
@@ -1766,8 +1835,8 @@ async function graphPoll() {
 }
 
 graphBtn.addEventListener("click", async () => {
-  const folder = graphFolderEl.value.trim();
-  if (!folder) { alert("Indique un dossier déjà classé."); return; }
+  const folders = await libFolders();
+  if (!folders.length) { alert("Ajoute d'abord un dossier dans l'onglet Bibliothèque."); return; }
   graphBtn.disabled = true;
   graphFill.classList.remove("done");
   setBar(graphFill, 0, 1);
@@ -1777,7 +1846,6 @@ graphBtn.addEventListener("click", async () => {
   const res = await fetch("/api/gallery/graph", {
     method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      folder,
       category: graphFilterCatEl.value || null,
       mode: graphModeEl.value,
       top_k: parseInt(graphTopKEl.value, 10),
@@ -1793,7 +1861,7 @@ graphBtn.addEventListener("click", async () => {
 });
 
 // ---------- Recta : historique des photos déjà publiées ----------
-const rectaFolderEl = $("rectaFolder");
+const rectaLibSummary = $("rectaLibSummary");
 const rectaLoadBtn = $("rectaLoadBtn");
 const rectaCountsEl = $("rectaCounts");
 const rectaGridEl = $("rectaGrid");
@@ -1805,10 +1873,9 @@ const rectaInspNetworks = $("rectaInspNetworks");
 
 let rectaItemsByPath = new Map();
 
-// Préremplissage immédiat (pas d'attente d'un focus qui peut ne jamais venir
-// si l'utilisateur clique directement sur Charger — déjà vu ailleurs cette
-// session : un placeholder ressemble à une valeur mais n'en est pas une).
-rectaFolderEl.value = localStorage.getItem(GAL_FOLDER_STORAGE_KEY) || CANONICAL_EXPORT_DIR;
+document.querySelector('.tab-btn[data-tab="recta"]').addEventListener("click", () => {
+  refreshLibSummaryEl(rectaLibSummary);
+});
 
 function rectaMakeEntry(item) {
   const rp = item.renegat_posted;
@@ -1882,12 +1949,12 @@ function rectaSelectImage(path) {
 }
 
 rectaLoadBtn.addEventListener("click", async () => {
-  const folder = rectaFolderEl.value.trim();
-  if (!folder) { alert("Indique le dossier export."); return; }
+  const folders = await refreshLibSummaryEl(rectaLibSummary);
+  if (!folders.length) { alert("Ajoute d'abord un dossier dans l'onglet Bibliothèque."); return; }
   rectaLoadBtn.disabled = true;
   rectaCountsEl.textContent = "Chargement…";
   try {
-    const res = await fetch("/api/gallery?folder=" + encodeURIComponent(folder));
+    const res = await fetch("/api/gallery");
     if (!res.ok) { rectaCountsEl.textContent = "Erreur: " + (await res.text()); return; }
     const data = await res.json();
     const posted = data.items.filter(i => i.renegat_posted)
@@ -1918,23 +1985,22 @@ rectaLoadBtn.addEventListener("click", async () => {
 });
 
 // ---------- Taxonomie : nuage de mots par attribut (passe 3) ----------
-const taxoFolderEl = $("taxoFolder");
+const taxoLibSummary = $("taxoLibSummary");
 const taxoLoadBtn = $("taxoLoadBtn");
 const taxoSummaryEl = $("taxoSummary");
 const taxoContentEl = $("taxoContent");
 const taxoEmptyEl = $("taxoEmpty");
 
-taxoFolderEl.value = localStorage.getItem(GAL_FOLDER_STORAGE_KEY) || CANONICAL_EXPORT_DIR;
+document.querySelector('.tab-btn[data-tab="taxonomie"]').addEventListener("click", () => {
+  refreshLibSummaryEl(taxoLibSummary);
+});
 
-/** Bascule vers la Galerie, charge le même dossier, puis applique soit le
- * filtre catégorie (pseudo-label "Catégorie"), soit un filtre d'attribut
- * label/valeur — réutilise exactement le mécanisme de filtre déjà construit
- * dans l'onglet Galerie, pas de logique dupliquée. */
+/** Bascule vers la Galerie puis applique soit le filtre catégorie
+ * (pseudo-label "Catégorie"), soit un filtre d'attribut label/valeur —
+ * réutilise exactement le mécanisme de filtre déjà construit dans l'onglet
+ * Galerie, pas de logique dupliquée. */
 async function taxoJumpToGalerie(label, value) {
-  document.querySelectorAll(".tab-btn").forEach(b => b.classList.toggle("active", b.dataset.tab === "galerie"));
-  for (const [name, el] of Object.entries(views)) el.style.display = name === "galerie" ? "grid" : "none";
-
-  galFolderEl.value = taxoFolderEl.value.trim();
+  switchToTab("galerie");
   await galLoad();
 
   if (label === "Catégorie") {
@@ -1993,12 +2059,12 @@ function taxoRender(data) {
 }
 
 taxoLoadBtn.addEventListener("click", async () => {
-  const folder = taxoFolderEl.value.trim();
-  if (!folder) { alert("Indique un dossier déjà classé."); return; }
+  const folders = await refreshLibSummaryEl(taxoLibSummary);
+  if (!folders.length) { alert("Ajoute d'abord un dossier dans l'onglet Bibliothèque."); return; }
   taxoLoadBtn.disabled = true;
   taxoSummaryEl.textContent = "Chargement…";
   try {
-    const res = await fetch("/api/gallery/taxonomy?folder=" + encodeURIComponent(folder));
+    const res = await fetch("/api/gallery/taxonomy");
     if (!res.ok) { taxoSummaryEl.textContent = "Erreur : " + (await res.text()); return; }
     const data = await res.json();
     taxoRender(data);

@@ -19,6 +19,7 @@ import graph as graph_module
 import identity as identity_module
 import details as details_module
 import gallery as gallery_module
+import library
 import organizer
 import prefilter
 import scanner
@@ -97,13 +98,11 @@ class RenegatPublishRequest(BaseModel):
 
 
 class DedupeRequest(BaseModel):
-    folder: str
     threshold: float = 0.92
     category: str | None = None
 
 
 class GraphRequest(BaseModel):
-    folder: str
     category: str | None = None
     top_k: int = 5
     min_similarity: float = 0.75
@@ -115,12 +114,10 @@ class DiscardRequest(BaseModel):
 
 
 class BackfillRequest(BaseModel):
-    folder: str
-    paths: list[str] | None = None  # si None : toutes les images du dossier sans détails
+    paths: list[str] | None = None  # si None : toutes les images de la bibliothèque sans détails
 
 
 class RefineRequest(BaseModel):
-    folder: str
     paths: list[str]
 
 
@@ -130,11 +127,14 @@ class RatingRequest(BaseModel):
 
 
 class SearchRequest(BaseModel):
-    folder: str
     query: str
     category: str | None = None
     min_rating: int = 0
     top_k: int = 10
+
+
+class LibraryFolderRequest(BaseModel):
+    path: str
 
 
 @app.get("/")
@@ -482,15 +482,34 @@ def undo():
     return organizer.undo_last()
 
 
+@app.get("/api/library")
+def get_library():
+    return {"folders": library.list_folders()}
+
+
+@app.post("/api/library/add")
+def library_add(req: LibraryFolderRequest):
+    try:
+        folders = library.add_folder(req.path)
+    except NotADirectoryError as e:
+        raise HTTPException(404, str(e))
+    return {"folders": folders}
+
+
+@app.post("/api/library/remove")
+def library_remove(req: LibraryFolderRequest):
+    return {"folders": library.remove_folder(req.path)}
+
+
 @app.get("/api/gallery")
-def get_gallery(folder: str):
-    return {"items": gallery_module.list_gallery(folder)}
+def get_gallery():
+    return {"items": gallery_module.list_gallery()}
 
 
-def _run_backfill(folder: str, paths: list[str]):
+def _run_backfill(paths: list[str]):
     STATE["backfill_job"] = {"status": "running", "done": 0, "total": 0, "current": None, "cancel_requested": False}
     try:
-        gallery_module.backfill_details(folder, paths, progress=STATE["backfill_job"])
+        gallery_module.backfill_details(paths, progress=STATE["backfill_job"])
         if STATE["backfill_job"]["status"] == "running":
             STATE["backfill_job"]["status"] = "done"
     except Exception as e:
@@ -505,13 +524,13 @@ def gallery_backfill(req: BackfillRequest):
         if req.paths is not None:
             paths = req.paths
         else:
-            items = gallery_module.list_gallery(req.folder)
+            items = gallery_module.list_gallery()
             paths = [i["path"] for i in items if not i.get("details")]
         if not paths:
             raise HTTPException(400, "Rien à compléter")
         STATE["backfill_job"] = {"status": "running", "done": 0, "total": len(paths), "current": None, "cancel_requested": False}
 
-    thread = threading.Thread(target=_run_backfill, args=(req.folder, paths), daemon=True)
+    thread = threading.Thread(target=_run_backfill, args=(paths,), daemon=True)
     thread.start()
     return {"started": True, "total": len(paths)}
 
@@ -528,10 +547,10 @@ def gallery_backfill_cancel():
     return STATE["backfill_job"]
 
 
-def _run_refine_gallery(folder: str, paths: list[str]):
+def _run_refine_gallery(paths: list[str]):
     STATE["refine_gallery_job"] = {"status": "running", "done": 0, "total": len(paths), "current": None, "cancel_requested": False}
     try:
-        gallery_module.refine_attributes_for(folder, paths, progress=STATE["refine_gallery_job"])
+        gallery_module.refine_attributes_for(paths, progress=STATE["refine_gallery_job"])
         if STATE["refine_gallery_job"]["status"] == "running":
             STATE["refine_gallery_job"]["status"] = "done"
     except Exception as e:
@@ -547,7 +566,7 @@ def gallery_refine(req: RefineRequest):
             raise HTTPException(400, "Rien à réaffiner")
         STATE["refine_gallery_job"] = {"status": "running", "done": 0, "total": len(req.paths), "current": None, "cancel_requested": False}
 
-    thread = threading.Thread(target=_run_refine_gallery, args=(req.folder, req.paths), daemon=True)
+    thread = threading.Thread(target=_run_refine_gallery, args=(req.paths,), daemon=True)
     thread.start()
     return {"started": True, "total": len(req.paths)}
 
@@ -564,10 +583,10 @@ def gallery_refine_cancel():
     return STATE["refine_gallery_job"]
 
 
-def _run_aesthetic(folder: str, paths: list[str]):
+def _run_aesthetic(paths: list[str]):
     STATE["aesthetic_job"] = {"status": "running", "done": 0, "total": len(paths), "current": None, "cancel_requested": False}
     try:
-        gallery_module.score_aesthetic_for(folder, paths, progress=STATE["aesthetic_job"])
+        gallery_module.score_aesthetic_for(paths, progress=STATE["aesthetic_job"])
         if STATE["aesthetic_job"]["status"] == "running":
             STATE["aesthetic_job"]["status"] = "done"
     except Exception as e:
@@ -583,7 +602,7 @@ def gallery_aesthetic(req: RefineRequest):
             raise HTTPException(400, "Rien à noter")
         STATE["aesthetic_job"] = {"status": "running", "done": 0, "total": len(req.paths), "current": None, "cancel_requested": False}
 
-    thread = threading.Thread(target=_run_aesthetic, args=(req.folder, req.paths), daemon=True)
+    thread = threading.Thread(target=_run_aesthetic, args=(req.paths,), daemon=True)
     thread.start()
     return {"started": True, "total": len(req.paths)}
 
@@ -600,10 +619,10 @@ def gallery_aesthetic_cancel():
     return STATE["aesthetic_job"]
 
 
-def _run_canon(folder: str, paths: list[str]):
+def _run_canon(paths: list[str]):
     STATE["canon_job"] = {"status": "running", "done": 0, "total": len(paths), "current": None, "cancel_requested": False}
     try:
-        gallery_module.check_canon_for(folder, paths, progress=STATE["canon_job"])
+        gallery_module.check_canon_for(paths, progress=STATE["canon_job"])
         if STATE["canon_job"]["status"] == "running":
             STATE["canon_job"]["status"] = "done"
     except Exception as e:
@@ -619,7 +638,7 @@ def gallery_canon(req: RefineRequest):
             raise HTTPException(400, "Rien à vérifier")
         STATE["canon_job"] = {"status": "running", "done": 0, "total": len(req.paths), "current": None, "cancel_requested": False}
 
-    thread = threading.Thread(target=_run_canon, args=(req.folder, req.paths), daemon=True)
+    thread = threading.Thread(target=_run_canon, args=(req.paths,), daemon=True)
     thread.start()
     return {"started": True, "total": len(req.paths)}
 
@@ -655,7 +674,7 @@ def gallery_item(path: str):
 
 @app.post("/api/gallery/search")
 def gallery_search(req: SearchRequest):
-    return {"items": gallery_module.semantic_search(req.folder, req.query, req.category, req.min_rating, req.top_k)}
+    return {"items": gallery_module.semantic_search(req.query, req.category, req.min_rating, req.top_k)}
 
 
 def _run_renegat_cli(args: list[str]) -> dict:
@@ -696,10 +715,10 @@ def renegat_publish(req: RenegatPublishRequest):
     return _run_renegat_cli(args)
 
 
-def _run_dedupe(folder: str, threshold: float, category: str | None):
+def _run_dedupe(threshold: float, category: str | None):
     STATE["dedupe_job"] = {"status": "running", "done": 0, "total": 0, "phase": "scan", "cancel_requested": False}
     try:
-        items = gallery_module.list_gallery(folder)
+        items = gallery_module.list_gallery()
         if category:
             items = [i for i in items if i["category_label"] == category]
         files = [Path(i["path"]) for i in items]
@@ -718,7 +737,7 @@ def dedupe(req: DedupeRequest):
             raise HTTPException(409, "Une détection de doublons est déjà en cours")
         STATE["dedupe_job"] = {"status": "running", "done": 0, "total": 0, "phase": "scan", "cancel_requested": False}
 
-    thread = threading.Thread(target=_run_dedupe, args=(req.folder, req.threshold, req.category), daemon=True)
+    thread = threading.Thread(target=_run_dedupe, args=(req.threshold, req.category), daemon=True)
     thread.start()
     return {"started": True}
 
@@ -755,13 +774,13 @@ def dedupe_discard(req: DiscardRequest):
     return {"trashed_to": trashed_to}
 
 
-def _run_graph(folder: str, category: str | None, top_k: int, min_similarity: float, mode: str):
+def _run_graph(category: str | None, top_k: int, min_similarity: float, mode: str):
     STATE["graph_job"] = {"status": "running", "done": 0, "total": 0, "phase": "scan", "cancel_requested": False}
     try:
         if mode == "identity":
-            data = identity_module.build_identity_graph(folder, top_k, min_similarity, progress=STATE["graph_job"])
+            data = identity_module.build_identity_graph(top_k, min_similarity, progress=STATE["graph_job"])
         else:
-            data = graph_module.build_similarity_graph(folder, category, top_k, min_similarity, progress=STATE["graph_job"])
+            data = graph_module.build_similarity_graph(category, top_k, min_similarity, progress=STATE["graph_job"])
         if STATE["graph_job"]["status"] == "running":
             STATE["graph_data"] = data
             STATE["graph_job"]["status"] = "done"
@@ -777,7 +796,7 @@ def gallery_graph(req: GraphRequest):
         STATE["graph_job"] = {"status": "running", "done": 0, "total": 0, "phase": "scan", "cancel_requested": False}
 
     thread = threading.Thread(
-        target=_run_graph, args=(req.folder, req.category, req.top_k, req.min_similarity, req.mode), daemon=True
+        target=_run_graph, args=(req.category, req.top_k, req.min_similarity, req.mode), daemon=True
     )
     thread.start()
     return {"started": True}
@@ -809,8 +828,8 @@ def gallery_similar(path: str, top_k: int = 5, min_similarity: float = 0.5):
 
 
 @app.get("/api/gallery/taxonomy")
-def gallery_taxonomy(folder: str, category: str | None = None):
-    return gallery_module.taxonomy(folder, category)
+def gallery_taxonomy(category: str | None = None):
+    return gallery_module.taxonomy(category)
 
 
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")

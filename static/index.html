@@ -15,6 +15,7 @@
     <div class="brand">🌈 <span>Iris</span></div>
     <nav class="tabs">
       <button type="button" class="tab-btn active" data-tab="tri">Tri</button>
+      <button type="button" class="tab-btn" data-tab="bibliotheque">Bibliothèque</button>
       <button type="button" class="tab-btn" data-tab="galerie">Galerie</button>
       <button type="button" class="tab-btn" data-tab="doublons">Doublons</button>
       <button type="button" class="tab-btn" data-tab="graphe">Graphe</button>
@@ -161,19 +162,38 @@
 
   </div>
 
+  <!-- Vue Bibliothèque : catalogue de dossiers déjà classés (à la Lightroom) —
+       remplace le champ "dossier unique" de Galerie/Doublons/Graphe/Taxonomie/
+       Recta, qui chargent désormais l'union de tous les dossiers listés ici. -->
+  <div class="workspace" id="view-bibliotheque" hidden>
+    <aside class="panel panel-left">
+      <section class="pblock">
+        <h3>Ajouter un dossier</h3>
+        <label class="field">Chemin
+          <div class="path-picker">
+            <input id="libNewFolder" type="text" placeholder="/mnt/usb/photos-2025" />
+            <button type="button" class="btn ghost" data-browse-target="libNewFolder">…</button>
+          </div>
+        </label>
+        <button id="libAddBtn" class="btn primary full">+ Ajouter à la bibliothèque</button>
+        <small>Chaque dossier ajouté est vu par la Galerie, Doublons, Graphe, Taxonomie et Recta comme une seule collection unifiée — plus besoin de retaper un chemin dans chaque onglet.</small>
+      </section>
+    </aside>
+    <main class="panel panel-center">
+      <div id="libList" class="lib-list"></div>
+      <div id="libEmpty" class="grid-empty">Aucun dossier dans la bibliothèque — ajoute-en un à gauche.</div>
+    </main>
+  </div>
+
   <!-- Vue Galerie : parcourt un dossier déjà classé (_classees), recherche/
        filtre via les sidecars, publication Recta directement depuis Iris -->
   <div class="workspace" id="view-galerie" hidden>
     <aside class="panel panel-left">
       <section class="pblock">
-        <h3>Dossier</h3>
-        <label class="field">Photos classées
-          <div class="path-picker">
-            <input id="galFolder" type="text" placeholder="/home/olivier/Photos/_classees" />
-            <button type="button" class="btn ghost" data-browse-target="galFolder">…</button>
-          </div>
-        </label>
-        <button id="galLoadBtn" class="btn primary full">Charger</button>
+        <h3>Bibliothèque</h3>
+        <small id="galLibSummary">—</small>
+        <button id="galLoadBtn" class="btn primary full" style="margin-top:8px">Charger</button>
+        <button type="button" class="btn ghost full" data-goto-tab="bibliotheque">Gérer les dossiers →</button>
       </section>
       <section class="pblock">
         <h3>Filtrer</h3>
@@ -231,7 +251,7 @@
         </div>
       </div>
       <div id="galGrid" class="grid"></div>
-      <div id="galEmpty" class="grid-empty">Choisis un dossier déjà classé puis clique Charger.</div>
+      <div id="galEmpty" class="grid-empty">Ajoute un dossier à la bibliothèque puis clique Charger.</div>
     </main>
 
     <aside class="panel panel-right" id="galInspector">
@@ -241,6 +261,7 @@
         <div class="insp-name" id="galInspName"></div>
         <div class="insp-rows">
           <div class="insp-row"><span class="ir-key">Catégorie</span><span class="ir-val" id="galInspCat"></span></div>
+          <div class="insp-row"><span class="ir-key">Dossier source</span><span class="ir-val" id="galInspSource"></span></div>
           <div class="insp-row"><span class="ir-key">Score esthétique</span><span class="ir-val" id="galInspAesthetic">—</span></div>
         </div>
         <div class="insp-section">
@@ -276,13 +297,11 @@
   <div class="workspace" id="view-doublons" hidden>
     <aside class="panel panel-left">
       <section class="pblock">
-        <h3>Dossier</h3>
-        <label class="field">Photos classées
-          <div class="path-picker">
-            <input id="dedupeFolder" type="text" placeholder="/home/olivier/Photos/_classees" />
-            <button type="button" class="btn ghost" data-browse-target="dedupeFolder">…</button>
-          </div>
-        </label>
+        <h3>Bibliothèque</h3>
+        <small id="dedupeLibSummary">—</small>
+        <button type="button" class="btn ghost full" style="margin-top:8px" data-goto-tab="bibliotheque">Gérer les dossiers →</button>
+      </section>
+      <section class="pblock">
         <label class="field">Catégorie
           <select id="dedupeFilterCat" class="select-sm" style="width:100%">
             <option value="">Toutes catégories</option>
@@ -315,13 +334,11 @@
   <div class="workspace" id="view-graphe" hidden>
     <aside class="panel panel-left">
       <section class="pblock">
-        <h3>Dossier</h3>
-        <label class="field">Photos classées
-          <div class="path-picker">
-            <input id="graphFolder" type="text" placeholder="/home/olivier/Photos/_classees" />
-            <button type="button" class="btn ghost" data-browse-target="graphFolder">…</button>
-          </div>
-        </label>
+        <h3>Bibliothèque</h3>
+        <small id="graphLibSummary">—</small>
+        <button type="button" class="btn ghost full" style="margin-top:8px" data-goto-tab="bibliotheque">Gérer les dossiers →</button>
+      </section>
+      <section class="pblock">
         <label class="field">Mode
           <select id="graphMode" class="select-sm" style="width:100%">
             <option value="similarity">Similarité générale (style/scène)</option>
@@ -374,14 +391,10 @@
   <div class="workspace" id="view-recta" hidden>
     <aside class="panel panel-left">
       <section class="pblock">
-        <h3>Dossier export</h3>
-        <label class="field">Photos classées
-          <div class="path-picker">
-            <input id="rectaFolder" type="text" placeholder="/home/olivier/renegats-photos/_classees" />
-            <button type="button" class="btn ghost" data-browse-target="rectaFolder">…</button>
-          </div>
-        </label>
-        <button id="rectaLoadBtn" class="btn primary full">Charger</button>
+        <h3>Bibliothèque</h3>
+        <small id="rectaLibSummary">—</small>
+        <button id="rectaLoadBtn" class="btn primary full" style="margin-top:8px">Charger</button>
+        <button type="button" class="btn ghost full" data-goto-tab="bibliotheque">Gérer les dossiers →</button>
         <small id="rectaCounts"></small>
       </section>
     </aside>
@@ -415,14 +428,10 @@
   <div class="workspace" id="view-taxonomie" hidden>
     <aside class="panel panel-left">
       <section class="pblock">
-        <h3>Dossier</h3>
-        <label class="field">Photos classées
-          <div class="path-picker">
-            <input id="taxoFolder" type="text" placeholder="/home/olivier/renegats-photos/_classees" />
-            <button type="button" class="btn ghost" data-browse-target="taxoFolder">…</button>
-          </div>
-        </label>
-        <button id="taxoLoadBtn" class="btn primary full">Charger</button>
+        <h3>Bibliothèque</h3>
+        <small id="taxoLibSummary">—</small>
+        <button id="taxoLoadBtn" class="btn primary full" style="margin-top:8px">Charger</button>
+        <button type="button" class="btn ghost full" data-goto-tab="bibliotheque">Gérer les dossiers →</button>
         <small id="taxoSummary"></small>
       </section>
     </aside>

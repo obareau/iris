@@ -75,14 +75,13 @@ def _lean(item: dict) -> dict:
 
 @mcp.tool()
 def iris_search(
-    folder: str,
     query: str | None = None,
     category: str | None = None,
     min_rating: int = 0,
     top_k: int = 10,
 ) -> list[dict]:
-    """Cherche des photos déjà classées par Iris dans `folder` (typiquement
-    .../_classees).
+    """Cherche des photos déjà classées par Iris, sur toute sa bibliothèque
+    (plusieurs dossiers possibles — voir iris_library_folders).
 
     Si `query` est fourni, recherche SÉMANTIQUE (CLIP texte→image — "une
     photo qui ressemble à X", pas une sous-chaîne exacte) ; les résultats
@@ -97,12 +96,12 @@ def iris_search(
     downstream (ex: --image=<path> de renegat-cli.ts côté Recta)."""
     if query:
         data = _post("/api/gallery/search", {
-            "folder": folder, "query": query, "category": category,
+            "query": query, "category": category,
             "min_rating": min_rating, "top_k": top_k,
         })
         return [_lean(i) for i in data["items"]]
 
-    data = _get("/api/gallery", {"folder": folder})
+    data = _get("/api/gallery")
     items = data["items"]
     if category:
         items = [i for i in items if i.get("category_label") == category]
@@ -113,12 +112,20 @@ def iris_search(
 
 
 @mcp.tool()
-def iris_categories(folder: str) -> list[str]:
-    """Liste les catégories présentes dans `folder` (ex: Personnes, Animaux,
-    Paysages, Objets_documents_schemas) — à consulter avant iris_search si le
-    libellé exact n'est pas connu d'avance."""
-    data = _get("/api/gallery", {"folder": folder})
+def iris_categories() -> list[str]:
+    """Liste les catégories présentes dans la bibliothèque (ex: Personnes,
+    Animaux, Paysages, Objets_documents_schemas) — à consulter avant
+    iris_search si le libellé exact n'est pas connu d'avance."""
+    data = _get("/api/gallery")
     return sorted({i["category_label"] for i in data["items"] if i.get("category_label")})
+
+
+@mcp.tool()
+def iris_library_folders() -> list[str]:
+    """Liste les dossiers surveillés par la bibliothèque d'Iris (catalogue à
+    la Lightroom — plusieurs sources possibles). Lecture seule : ajouter/
+    retirer un dossier reste réservé à l'onglet Bibliothèque de l'UI."""
+    return _get("/api/library")["folders"]
 
 
 @mcp.tool()
@@ -133,8 +140,8 @@ def iris_similar_images(path: str, top_k: int = 5, min_similarity: float = 0.5) 
     """Voisins visuels d'UNE photo précise (similarité CLIP sur l'embedding
     image, pas de texte) — répond à "trouve-moi d'autres photos qui
     ressemblent à celle-ci" plutôt qu'à une description en langage naturel
-    (voir iris_search pour ça). Cherche dans le même dossier _classees que
-    `path`. Renvoie {path, category_label, details, rating, score}."""
+    (voir iris_search pour ça). Cherche sur toute la bibliothèque (plusieurs
+    dossiers possibles). Renvoie {path, category_label, details, rating, score}."""
     data = _get("/api/gallery/similar", {"path": path, "top_k": top_k, "min_similarity": min_similarity})
     return [_lean(i) for i in data["items"]]
 
