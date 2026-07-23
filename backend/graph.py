@@ -47,18 +47,22 @@ def build_similarity_graph(
     category: str | None = None,
     top_k: int = 5,
     min_similarity: float = 0.75,
+    source_folder: str | None = None,
     progress: dict | None = None,
 ) -> dict:
     """Graphe de similarité visuelle sur toute la bibliothèque (voir
-    library.py — plusieurs dossiers possibles) — nœuds = photos, arêtes = les
-    top_k voisins les plus proches (similarité cosinus sur les embeddings
-    CLIP, même cache que Doublons/passe 1) au-dessus de min_similarity.
-    Contrairement à Doublons (qui ne garde que les quasi-identiques), ceci
-    révèle des regroupements thématiques plus larges (même style, même
-    personnage...)."""
+    library.py — plusieurs dossiers possibles), ou restreint à un seul dossier
+    via `source_folder` (utile pour un dossier réseau lent ou volumineux, sans
+    le retirer du catalogue) — nœuds = photos, arêtes = les top_k voisins les
+    plus proches (similarité cosinus sur les embeddings CLIP, même cache que
+    Doublons/passe 1) au-dessus de min_similarity. Contrairement à Doublons
+    (qui ne garde que les quasi-identiques), ceci révèle des regroupements
+    thématiques plus larges (même style, même personnage...)."""
     items = gallery_module.list_gallery()
     if category:
         items = [i for i in items if i["category_label"] == category]
+    if source_folder:
+        items = [i for i in items if i["source_folder"] == source_folder]
     if progress is not None:
         progress["total"] = len(items)
         progress["done"] = 0

@@ -764,6 +764,16 @@ async function refreshLibSummaryEl(el) {
   return folders;
 }
 
+// Peuple un <select> "dossier source" (Doublons/Graphe) — préserve la
+// sélection en cours si elle existe toujours dans la liste.
+async function populateFolderSelect(selectEl) {
+  const folders = await libFolders();
+  const current = selectEl.value;
+  selectEl.innerHTML = '<option value="">Tous les dossiers</option>'
+    + folders.map(f => `<option value="${f}">${f.split("/").pop()}</option>`).join("");
+  if (folders.includes(current)) selectEl.value = current;
+}
+
 const libNewFolderEl = $("libNewFolder");
 const libAddBtn = $("libAddBtn");
 const libListEl = $("libList");
@@ -833,7 +843,10 @@ const galInspAttrSection = $("galInspAttrSection"), galInspAttrs = $("galInspAtt
 const galInspAesthetic = $("galInspAesthetic");
 const galInspCanonSection = $("galInspCanonSection");
 const galInspCanonFaction = $("galInspCanonFaction"), galInspCanonVerdict = $("galInspCanonVerdict");
+const galInspCanonClip = $("galInspCanonClip");
 const galInspCanonReason = $("galInspCanonReason");
+const galCharacterNameEl = $("galCharacterName");
+const galCharacterSaveBtn = $("galCharacterSaveBtn");
 const galPostedStatus = $("galPostedStatus");
 const galRenegatBtn = $("galRenegatBtn");
 const galDeleteBtn = $("galDeleteBtn");
@@ -986,10 +999,15 @@ function galRenderInspector(item) {
     galInspCanonSection.hidden = false;
     galInspCanonFaction.textContent = item.canon_faction || "Faction non reconnue";
     galInspCanonVerdict.textContent = item.canon_verdict || "";
+    galInspCanonClip.textContent = item.canon_clip_confidence != null
+      ? `${Math.round(item.canon_clip_confidence * 100)}%`
+      : "—";
     galInspCanonReason.textContent = item.canon_reason;
   } else {
     galInspCanonSection.hidden = true;
   }
+
+  galCharacterNameEl.value = item.character_name || "";
 
   galRenderStars(item.rating || 0);
 }
@@ -1301,6 +1319,23 @@ galDeleteBtn.addEventListener("click", async () => {
   }
 });
 
+galCharacterSaveBtn.addEventListener("click", async () => {
+  if (!galSelectedPath) return;
+  const name = galCharacterNameEl.value.trim();
+  galCharacterSaveBtn.disabled = true;
+  try {
+    const res = await fetch("/api/gallery/character", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path: galSelectedPath, character_name: name }),
+    });
+    if (!res.ok) { alert("Erreur : " + (await res.text())); return; }
+    const item = galItemsByPath.get(galSelectedPath);
+    if (item) item.character_name = name || null;
+  } finally {
+    galCharacterSaveBtn.disabled = false;
+  }
+});
+
 // ---------- Sélection multiple (utile sur un gros lot fraîchement importé) ----------
 const galBulkBar = $("galBulkBar");
 const galBulkCount = $("galBulkCount");
@@ -1315,7 +1350,17 @@ const galBulkAestheticCancelBtn = $("galBulkAestheticCancelBtn");
 wireCancelBtn(galBulkAestheticCancelBtn, "/api/gallery/aesthetic/cancel");
 const galBulkCanonBtn = $("galBulkCanonBtn");
 const galBulkCanonCancelBtn = $("galBulkCanonCancelBtn");
+const galCanonFactionSel = $("galCanonFactionSel");
 wireCancelBtn(galBulkCanonCancelBtn, "/api/gallery/canon/cancel");
+
+fetch("/api/factions").then(r => r.json()).then(data => {
+  for (const f of data.factions) {
+    const opt = document.createElement("option");
+    opt.value = f.id;
+    opt.textContent = f.label;
+    galCanonFactionSel.appendChild(opt);
+  }
+});
 const galSelectAllBtn = $("galSelectAllBtn");
 
 let galSelectedPaths = new Set();
@@ -1532,11 +1577,12 @@ async function galCanonPoll() {
 galBulkCanonBtn.addEventListener("click", async () => {
   const paths = [...galSelectedPaths];
   if (!paths.length) return;
+  const faction_id = galCanonFactionSel.value || null;
   galBulkCanonBtn.disabled = true;
   galBulkCanonBtn.textContent = "Vérification…";
   const res = await fetch("/api/gallery/canon", {
     method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ paths }),
+    body: JSON.stringify({ paths, faction_id }),
   });
   if (!res.ok) {
     alert("Erreur : " + (await res.text()));
@@ -1550,6 +1596,7 @@ galBulkCanonBtn.addEventListener("click", async () => {
 // ---------- Doublons / images similaires ----------
 const dedupeLibSummary = $("dedupeLibSummary");
 const dedupeFilterCatEl = $("dedupeFilterCat");
+const dedupeFilterFolderEl = $("dedupeFilterFolder");
 const dedupeThresholdEl = $("dedupeThreshold");
 const dedupeThresholdVal = $("dedupeThresholdVal");
 const dedupeBtn = $("dedupeBtn");
@@ -1582,6 +1629,7 @@ async function dedupeRefreshCategories() {
 document.querySelector('.tab-btn[data-tab="doublons"]').addEventListener("click", () => {
   refreshLibSummaryEl(dedupeLibSummary);
   dedupeRefreshCategories();
+  populateFolderSelect(dedupeFilterFolderEl);
 });
 
 function dedupeMakeThumb(path) {
@@ -1697,6 +1745,7 @@ dedupeBtn.addEventListener("click", async () => {
     body: JSON.stringify({
       threshold: dedupeThresholdEl.value / 100,
       category: dedupeFilterCatEl.value || null,
+      source_folder: dedupeFilterFolderEl.value || null,
     }),
   });
   if (!res.ok) {
@@ -1712,6 +1761,7 @@ const graphLibSummary = $("graphLibSummary");
 const graphModeEl = $("graphMode");
 const graphCatField = $("graphCatField");
 const graphFilterCatEl = $("graphFilterCat");
+const graphFilterFolderEl = $("graphFilterFolder");
 
 graphModeEl.addEventListener("change", () => {
   const isIdentity = graphModeEl.value === "identity";
@@ -1734,8 +1784,13 @@ const cyContainer = $("cyContainer");
 const graphEmptyEl = $("graphEmpty");
 const graphInspEmpty = $("graphInspEmpty"), graphInspBody = $("graphInspBody");
 const graphInspImg = $("graphInspImg"), graphInspName = $("graphInspName"), graphInspCat = $("graphInspCat");
+const graphIdentitySection = $("graphIdentitySection");
+const graphCharacterName = $("graphCharacterName"), graphCharacterSaveBtn = $("graphCharacterSaveBtn");
+const graphApplyClusterBtn = $("graphApplyClusterBtn"), graphClusterInfo = $("graphClusterInfo");
 
 let cy = null;
+let graphSelectedPath = null;
+let graphSelectedNeighborhood = null;
 wireCancelBtn(graphCancelBtn, "/api/gallery/graph/cancel");
 
 graphTopKEl.addEventListener("input", () => { graphTopKVal.textContent = graphTopKEl.value; });
@@ -1757,15 +1812,65 @@ async function graphRefreshCategories() {
 document.querySelector('.tab-btn[data-tab="graphe"]').addEventListener("click", () => {
   refreshLibSummaryEl(graphLibSummary);
   graphRefreshCategories();
+  populateFolderSelect(graphFilterFolderEl);
 });
 
-function graphSelectNode(path, catLabel) {
+async function graphSelectNode(path, catLabel) {
   graphInspEmpty.hidden = true;
   graphInspBody.hidden = false;
   graphInspImg.src = "/api/thumbnail?path=" + encodeURIComponent(path);
   graphInspName.textContent = path.split("/").pop();
   graphInspCat.textContent = catLabel || "—";
+
+  graphSelectedPath = path;
+  const isIdentity = graphModeEl.value === "identity";
+  graphIdentitySection.hidden = !isIdentity;
+  if (isIdentity) {
+    graphClusterInfo.textContent = "";
+    const item = await fetch("/api/gallery/item?path=" + encodeURIComponent(path)).then(r => r.ok ? r.json() : null);
+    graphCharacterName.value = (item && item.character_name) || "";
+  }
 }
+
+graphCharacterSaveBtn.addEventListener("click", async () => {
+  if (!graphSelectedPath) return;
+  const name = graphCharacterName.value.trim();
+  graphCharacterSaveBtn.disabled = true;
+  try {
+    const res = await fetch("/api/gallery/character", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path: graphSelectedPath, character_name: name }),
+    });
+    if (!res.ok) alert("Erreur : " + (await res.text()));
+  } finally {
+    graphCharacterSaveBtn.disabled = false;
+  }
+});
+
+graphApplyClusterBtn.addEventListener("click", async () => {
+  if (!graphSelectedPath || !graphSelectedNeighborhood) return;
+  const name = graphCharacterName.value.trim();
+  // Le voisinage direct affiché à l'écran (dimming/focus au clic) — PAS la
+  // composante connexe entière du graphe, qui peut s'étendre à des dizaines
+  // de photos sans rapport via une simple chaîne d'arêtes faibles.
+  const paths = graphSelectedNeighborhood.nodes().map(n => n.id());
+  if (!confirm(`Appliquer "${name || "(vide)"}" au voisinage affiché (${paths.length} photo(s)) ?`)) return;
+  graphApplyClusterBtn.disabled = true;
+  try {
+    const results = await Promise.all(paths.map(path =>
+      fetch("/api/gallery/character", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path, character_name: name }),
+      }).then(res => res.ok)
+    ));
+    const failed = results.filter(ok => !ok).length;
+    graphClusterInfo.textContent = failed
+      ? `${paths.length - failed}/${paths.length} mises à jour, ${failed} erreur(s)`
+      : `${paths.length} photo(s) mises à jour.`;
+  } finally {
+    graphApplyClusterBtn.disabled = false;
+  }
+});
 
 function graphRender(data) {
   cyContainer.innerHTML = "";
@@ -1839,8 +1944,14 @@ function graphRender(data) {
 
     // Isole visuellement le nœud + ses voisins directs (surtout utile pour
     // repérer LES quelques images vraiment proches d'une photo donnée,
-    // plutôt que de deviner dans la masse des 262 liens).
+    // plutôt que de deviner dans la masse des 262 liens). C'est aussi
+    // exactement ce que "Appliquer à tout le cluster" applique — pas la
+    // composante connexe entière du graphe, qui peut s'étendre bien au-delà
+    // de ce qui est visuellement mis en évidence via un simple pont d'arêtes
+    // faibles (vécu : 123 photos touchées via une chaîne jusqu'à un tout
+    // autre groupe, alors que 6 nœuds étaient visibles à l'écran).
     const neighborhood = n.closedNeighborhood();
+    graphSelectedNeighborhood = neighborhood;
     cy.elements().addClass("dimmed");
     neighborhood.removeClass("dimmed");
     cy.nodes().removeClass("focused");
@@ -1888,6 +1999,7 @@ graphBtn.addEventListener("click", async () => {
       mode: graphModeEl.value,
       top_k: parseInt(graphTopKEl.value, 10),
       min_similarity: graphThresholdEl.value / 100,
+      source_folder: graphFilterFolderEl.value || null,
     }),
   });
   if (!res.ok) {

@@ -11,7 +11,11 @@ existante d'Iris plutôt qu'un nouveau modèle :
 
 ⚠️ Un premier tri, pas un jugement définitif : la faction devinée peut être
 fausse (CLIP zero-shot sur 36 classes assez proches visuellement), et Qwen2-
-VL-2B est un petit modèle — le verdict doit rester consultatif."""
+VL-2B est un petit modèle — le verdict doit rester consultatif. Pour limiter
+son biais de complaisance (dit "conforme" même sur une faction manifestement
+fausse), check_canon() croise le verdict texte avec un second signal — la
+similarité CLIP image↔lore (faction_similarity) — et rétrograde un "conforme"
+que ce signal contredit franchement."""
 
 import json
 import re
@@ -53,6 +57,23 @@ def guess_faction(path: Path) -> dict | None:
     return {"id": scores[0]["slug"], "label": scores[0]["label"], "confidence": scores[0]["prob"]}
 
 
+def faction_similarity(path: Path, faction_id: str) -> float:
+    """Probabilité CLIP (softmax sur les 36 factions) qu'une image corresponde
+    à `faction_id` précis — contrairement à guess_faction, calcule pour UNE
+    faction donnée même si ce n'est pas la mieux classée. Sert de second
+    signal, indépendant du jugement du VLM, pour repérer un verdict "conforme"
+    qui ne tient pas debout visuellement (cf. check_canon) ou pour évaluer une
+    faction choisie à la main plutôt que devinée."""
+    _load_faction_index()
+    if not _faction_categories:
+        return 0.0
+    st = path.stat()
+    emb = classifier.image_embedding(path, st.st_mtime, st.st_size)
+    scores = classifier.classify_scores(emb, _faction_categories, _faction_text_feats, topk=len(_faction_categories))
+    match = next((s for s in scores if s["slug"] == faction_id), None)
+    return match["prob"] if match else 0.0
+
+
 def _parse_verdict(text: str) -> tuple[str, str]:
     """JSON strict fiable à ~100% sur Qwen2-VL-2B ici, contrairement à un
     format "mot - phrase" que le modèle ignore souvent (testé : il répond
@@ -79,6 +100,11 @@ def _parse_verdict(text: str) -> tuple[str, str]:
     return verdict, reason
 
 
+MISMATCH_CLIP_THRESHOLD = 0.05  # en dessous, la faction ne ressort même pas
+# visuellement parmi les 36 — un "conforme" du VLM est alors suspect (biais de
+# complaisance documenté, cf. article de blog "Le fond blanc mentait").
+
+
 def check_canon(path: Path, faction: dict) -> dict:
     lore = (factions.get_faction(faction["id"]) or {}).get("lore", "")[:600]
     question = (
@@ -93,4 +119,15 @@ def check_canon(path: Path, faction: dict) -> dict:
     img.thumbnail((768, 768))
     answer = details_module.ask(img, question, max_new_tokens=120)
     verdict, reason = _parse_verdict(answer)
-    return {"verdict": verdict, "verdict_label": VERDICT_LABELS[verdict], "reason": reason}
+
+    clip_confidence = faction_similarity(path, faction["id"])
+    if verdict == "match" and clip_confidence < MISMATCH_CLIP_THRESHOLD:
+        verdict = "uncertain"
+        reason = f"{reason} (rétrogradé : le style ne ressort pas visuellement pour cette faction — confiance CLIP {clip_confidence:.0%})"
+
+    return {
+        "verdict": verdict,
+        "verdict_label": VERDICT_LABELS[verdict],
+        "reason": reason,
+        "clip_confidence": round(clip_confidence, 4),
+    }

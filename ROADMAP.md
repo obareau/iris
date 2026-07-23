@@ -23,25 +23,31 @@ valeur/effort plutôt que par ordre d'idée.
 
 ## Phase 2 — Nécessite un peu de conception
 
-- [ ] **Nommer les identités récurrentes** — le mode Identité du Graphe détecte
-      déjà qu'un groupe de photos montre le même personnage (crop YOLO + CLIP),
-      mais le regroupement reste anonyme. Ajouter un champ `character_name` au
-      sidecar, assignable depuis le Graphe ou la Galerie, puis exploitable comme
-      filtre ("toutes les photos de Zoé") — rapprocherait Iris du travail déjà
-      fait par Atlas sur les personnages.
-- [ ] **Vérification de canon manuelle** — actuellement la faction est toujours
-      devinée (CLIP zero-shot). Ajouter un sélecteur de faction explicite pour
-      forcer la vérification contre une faction précise, utile quand le guess se
-      trompe ou pour tester délibérément une hypothèse ("est-ce que ça pourrait
-      passer pour un Renégat ?").
-- [ ] **Verdict de canon plus discriminant** — le petit VLM (Qwen2-VL-2B) a un
-      biais de complaisance documenté (dit "conforme" même sur une faction
-      manifestement fausse, cf. article de blog *Le fond blanc mentait*).
-      Envisager de compléter le verdict texte par un score de similarité
-      CLIP image↔lore (déjà calculé pour le guess), moins sujet à sycophance.
-- [ ] **Filtre dossier source dans Doublons/Graphe** — utile pour restreindre une
-      détection à un seul dossier de la bibliothèque quand un autre est lent
-      (réseau) ou volumineux, sans le retirer du catalogue.
+- [x] **Nommer les identités récurrentes** — champ `character_name` au
+      sidecar, assignable depuis la Galerie ou le Graphe (mode identité).
+      Depuis le Graphe : "Appliquer au voisinage affiché" — le voisinage
+      direct du nœud tapé (celui qui est visuellement mis en évidence), pas
+      la composante connexe entière du graphe. Fait le 2026-07-23.
+      ⚠️ **Piège vécu en testant** : la première version utilisait
+      `cy.elements().components()` (composante connexe complète) — a
+      appliqué un nom test à 123 photos au lieu des ~6 visibles à l'écran,
+      via une chaîne d'arêtes faibles reliant deux groupes visuellement
+      distincts. Corrigé en réutilisant le voisinage déjà calculé pour le
+      surlignage au clic (`closedNeighborhood()`, 1 saut) plutôt que de
+      recalculer une composante globale.
+- [x] **Vérification de canon manuelle** — sélecteur de faction dans la
+      Galerie ("Deviner automatiquement" par défaut, ou une faction précise
+      des 36 du vault). Fait le 2026-07-23.
+- [x] **Verdict de canon plus discriminant** — `canon.faction_similarity()`
+      calcule un score CLIP image↔lore indépendant du verdict texte ; un
+      "conforme" du VLM est automatiquement rétrogradé en "douteux" si ce
+      score est trop bas (< 5%) pour la faction en question. Testé en réel :
+      un "conforme" sur une faction manifestement fausse (C.G.U. sur un
+      personnage cyberpunk Renégat) est bien rétrogradé, confiance CLIP 0%
+      affichée. Fait le 2026-07-23.
+- [x] **Filtre dossier source dans Doublons/Graphe** — sélecteur "Dossier
+      source" dans les deux onglets, en plus du filtre catégorie. Fait le
+      2026-07-23.
 
 ## Phase 3 — Plus gros chantiers, exploratoire
 
@@ -63,7 +69,9 @@ valeur/effort plutôt que par ordre d'idée.
 Galerie à facettes (recherche sémantique CLIP, filtres attributs, sélection en
 masse) · Doublons (union-find + similarité CLIP) · Graphe similarité + identité
 · Taxonomie (nuage de mots) · Recta (timeline des publications) · Score
-esthétique (IA) · Vérification de canon contre le lore Robotariis · EXIF
-write-back · Bibliothèque multi-dossiers avec raccourcis réseau/USB/montages ·
-MCP `iris` (lecture seule, 5 outils) · Pipeline complet en un clic · Annulation
-de job sur les 6 types de tâche longue.
+esthétique (IA) · Vérification de canon contre le lore Robotariis (auto ou
+faction choisie, score CLIP discriminant) · Nommage des identités récurrentes
+(Galerie + Graphe) · EXIF write-back · Bibliothèque multi-dossiers avec
+raccourcis réseau/USB/montages + santé par dossier · Filtre dossier source
+dans Doublons/Graphe · MCP `iris` (lecture seule, 5 outils) · Pipeline complet
+en un clic · Annulation de job sur les 6 types de tâche longue.

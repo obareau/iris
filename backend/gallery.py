@@ -8,6 +8,7 @@ import canon
 import classifier
 import details as details_module
 import exif_writer
+import factions
 import library
 
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp"}
@@ -80,6 +81,8 @@ def list_gallery() -> list[dict]:
                 "canon_faction": sidecar.get("canon_faction"),
                 "canon_verdict": sidecar.get("canon_verdict"),
                 "canon_reason": sidecar.get("canon_reason"),
+                "canon_clip_confidence": sidecar.get("canon_clip_confidence"),
+                "character_name": sidecar.get("character_name"),
             })
     return items
 
@@ -138,6 +141,8 @@ def get_item(path: str) -> dict:
         "canon_faction": sidecar.get("canon_faction"),
         "canon_verdict": sidecar.get("canon_verdict"),
         "canon_reason": sidecar.get("canon_reason"),
+        "canon_clip_confidence": sidecar.get("canon_clip_confidence"),
+        "character_name": sidecar.get("character_name"),
         "renegat_posted": sidecar.get("renegat_posted"),
         "has_sidecar": bool(sidecar),
     }
@@ -188,11 +193,22 @@ def set_rating(image_path: str, rating: int) -> None:
     existing = _read_sidecar(path)
     existing["rating"] = rating
     _write_sidecar(path, existing)
-    exif_writer.write_exif(
-        path, existing.get("category_label"), existing.get("details"),
-        existing.get("attributes"), rating, existing.get("aesthetic_score"),
-        existing.get("canon_faction"), existing.get("canon_verdict"),
-    )
+    exif_writer.write_exif(path, existing)
+
+
+def set_character_name(image_path: str, name: str) -> None:
+    """Nom du personnage récurrent (rempli depuis le Graphe en mode identité,
+    ou directement dans la Galerie) — chaîne vide pour effacer. Ce n'est pas
+    un regroupement géré par Iris (le Graphe ne connaît que des similarités,
+    pas des identités nommées) : c'est l'humain qui décide qu'un cluster
+    détecté correspond à tel personnage, et l'applique."""
+    path = Path(image_path)
+    if not path.is_file():
+        raise FileNotFoundError(f"Fichier introuvable: {path}")
+    existing = _read_sidecar(path)
+    existing["character_name"] = name.strip() or None
+    _write_sidecar(path, existing)
+    exif_writer.write_exif(path, existing)
 
 
 def backfill_details(paths: list[str], progress: dict | None = None) -> None:
@@ -231,11 +247,7 @@ def backfill_details(paths: list[str], progress: dict | None = None) -> None:
                 "attributes": attributes,
             })
             _write_sidecar(path, existing)
-            exif_writer.write_exif(
-                path, existing["category_label"], detail["text"], attributes,
-                existing.get("rating", 0), existing.get("aesthetic_score"),
-                existing.get("canon_faction"), existing.get("canon_verdict"),
-            )
+            exif_writer.write_exif(path, existing)
         except Exception as e:
             if progress is not None:
                 progress.setdefault("errors", []).append({"path": path_str, "error": str(e)})
@@ -273,11 +285,7 @@ def refine_attributes_for(paths: list[str], progress: dict | None = None) -> Non
             )
             existing["attributes"] = details_module.refine_attributes(path, category_slug)
             _write_sidecar(path, existing)
-            exif_writer.write_exif(
-                path, existing.get("category_label"), existing.get("details"),
-                existing["attributes"], existing.get("rating", 0), existing.get("aesthetic_score"),
-                existing.get("canon_faction"), existing.get("canon_verdict"),
-            )
+            exif_writer.write_exif(path, existing)
         except Exception as e:
             if progress is not None:
                 progress.setdefault("errors", []).append({"path": path_str, "error": str(e)})
@@ -339,11 +347,7 @@ def score_aesthetic_for(paths: list[str], progress: dict | None = None) -> None:
             existing = _read_sidecar(path)
             existing["aesthetic_score"] = aesthetic.score_path(path)
             _write_sidecar(path, existing)
-            exif_writer.write_exif(
-                path, existing.get("category_label"), existing.get("details"),
-                existing.get("attributes"), existing.get("rating", 0), existing["aesthetic_score"],
-                existing.get("canon_faction"), existing.get("canon_verdict"),
-            )
+            exif_writer.write_exif(path, existing)
         except Exception as e:
             if progress is not None:
                 progress.setdefault("errors", []).append({"path": path_str, "error": str(e)})
@@ -353,11 +357,21 @@ def score_aesthetic_for(paths: list[str], progress: dict | None = None) -> None:
         progress["current"] = None
 
 
-def check_canon_for(paths: list[str], progress: dict | None = None) -> None:
-    """Devine la faction du personnage par CLIP zero-shot (canon.guess_faction),
-    puis fait lire l'image + le lore de cette faction à Qwen2-VL pour un verdict
-    (canon.check_canon) — écrit les deux dans le sidecar + EXIF, comme
-    score_aesthetic_for pour le score esthétique."""
+def check_canon_for(paths: list[str], faction_id: str | None = None, progress: dict | None = None) -> None:
+    """Sans `faction_id` : devine la faction par CLIP zero-shot
+    (canon.guess_faction). Avec `faction_id` : force la vérification contre
+    cette faction précise, sans deviner — utile quand le guess se trompe ou
+    pour tester délibérément une hypothèse. Dans les deux cas, Qwen2-VL lit
+    l'image + le lore de la faction pour un verdict (canon.check_canon),
+    écrit dans le sidecar + EXIF comme score_aesthetic_for pour le score
+    esthétique."""
+    forced_faction = None
+    if faction_id:
+        fac = factions.get_faction(faction_id)
+        if fac is None:
+            raise ValueError(f"Faction inconnue : {faction_id}")
+        forced_faction = {"id": fac["id"], "label": fac["label"]}
+
     if progress is not None:
         progress["total"] = len(paths)
         progress["done"] = 0
@@ -372,22 +386,20 @@ def check_canon_for(paths: list[str], progress: dict | None = None) -> None:
             progress["current"] = path_str
         try:
             existing = _read_sidecar(path)
-            faction = canon.guess_faction(path)
+            faction = forced_faction or canon.guess_faction(path)
             if faction is None:
                 existing["canon_faction"] = None
                 existing["canon_verdict"] = None
                 existing["canon_reason"] = "Aucune faction reconnaissable avec assez de confiance."
+                existing["canon_clip_confidence"] = None
             else:
                 result = canon.check_canon(path, faction)
                 existing["canon_faction"] = faction["label"]
                 existing["canon_verdict"] = result["verdict_label"]
                 existing["canon_reason"] = result["reason"]
+                existing["canon_clip_confidence"] = result["clip_confidence"]
             _write_sidecar(path, existing)
-            exif_writer.write_exif(
-                path, existing.get("category_label"), existing.get("details"),
-                existing.get("attributes"), existing.get("rating", 0), existing.get("aesthetic_score"),
-                existing.get("canon_faction"), existing.get("canon_verdict"),
-            )
+            exif_writer.write_exif(path, existing)
         except Exception as e:
             if progress is not None:
                 progress.setdefault("errors", []).append({"path": path_str, "error": str(e)})

@@ -97,24 +97,19 @@ def apply_moves(items: list[dict], dest_root: str) -> dict:
             # Sidecar : seul endroit où les attributs de la passe 3 survivent
             # après l'application du tri — sans lui ils disparaissaient avec
             # l'entrée STATE["results"] au moment du pop() ci-dessous.
-            sidecar_path.write_text(
-                json.dumps(
-                    {
-                        "category_slug": item["category_slug"],
-                        "category_label": item["category_label"],
-                        "color_mode": item.get("color_mode"),
-                        "orientation": item.get("orientation"),
-                        "details": item.get("details"),
-                        "attributes": attributes or [],
-                        "aesthetic_score": aesthetic_score,
-                        "source_path": str(src),
-                        "applied_at": datetime.now().isoformat(),
-                    },
-                    ensure_ascii=False,
-                    indent=2,
-                )
-            )
-            exif_writer.write_exif(dest_path, item["category_label"], item.get("details"), attributes, aesthetic_score=aesthetic_score)
+            sidecar = {
+                "category_slug": item["category_slug"],
+                "category_label": item["category_label"],
+                "color_mode": item.get("color_mode"),
+                "orientation": item.get("orientation"),
+                "details": item.get("details"),
+                "attributes": attributes or [],
+                "aesthetic_score": aesthetic_score,
+                "source_path": str(src),
+                "applied_at": datetime.now().isoformat(),
+            }
+            sidecar_path.write_text(json.dumps(sidecar, ensure_ascii=False, indent=2))
+            exif_writer.write_exif(dest_path, sidecar)
             log_entries.append({"from": str(src), "to": str(dest_path), "sidecar": str(sidecar_path)})
         except Exception as e:
             errors.append({"path": str(src), "error": str(e)})

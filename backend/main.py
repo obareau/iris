@@ -18,6 +18,7 @@ import dedupe as dedupe_module
 import graph as graph_module
 import identity as identity_module
 import details as details_module
+import factions as factions_module
 import gallery as gallery_module
 import library
 import mounts
@@ -101,6 +102,7 @@ class RenegatPublishRequest(BaseModel):
 class DedupeRequest(BaseModel):
     threshold: float = 0.92
     category: str | None = None
+    source_folder: str | None = None  # None = toute la bibliothèque
 
 
 class GraphRequest(BaseModel):
@@ -108,6 +110,7 @@ class GraphRequest(BaseModel):
     top_k: int = 5
     min_similarity: float = 0.75
     mode: str = "similarity"  # "similarity" (whole-image, graph.py) ou "identity" (crop visage, identity.py)
+    source_folder: str | None = None  # None = toute la bibliothèque
 
 
 class DiscardRequest(BaseModel):
@@ -122,9 +125,19 @@ class RefineRequest(BaseModel):
     paths: list[str]
 
 
+class CanonRequest(BaseModel):
+    paths: list[str]
+    faction_id: str | None = None  # None = deviner automatiquement (comportement par défaut)
+
+
 class RatingRequest(BaseModel):
     path: str
     rating: int
+
+
+class CharacterRequest(BaseModel):
+    path: str
+    character_name: str
 
 
 class SearchRequest(BaseModel):
@@ -630,10 +643,10 @@ def gallery_aesthetic_cancel():
     return STATE["aesthetic_job"]
 
 
-def _run_canon(paths: list[str]):
+def _run_canon(paths: list[str], faction_id: str | None):
     STATE["canon_job"] = {"status": "running", "done": 0, "total": len(paths), "current": None, "cancel_requested": False}
     try:
-        gallery_module.check_canon_for(paths, progress=STATE["canon_job"])
+        gallery_module.check_canon_for(paths, faction_id=faction_id, progress=STATE["canon_job"])
         if STATE["canon_job"]["status"] == "running":
             STATE["canon_job"]["status"] = "done"
     except Exception as e:
@@ -641,7 +654,7 @@ def _run_canon(paths: list[str]):
 
 
 @app.post("/api/gallery/canon")
-def gallery_canon(req: RefineRequest):
+def gallery_canon(req: CanonRequest):
     with STATE["canon_job_lock"]:
         if STATE["canon_job"]["status"] == "running":
             raise HTTPException(409, "Une vérification de canon est déjà en cours")
@@ -649,9 +662,14 @@ def gallery_canon(req: RefineRequest):
             raise HTTPException(400, "Rien à vérifier")
         STATE["canon_job"] = {"status": "running", "done": 0, "total": len(req.paths), "current": None, "cancel_requested": False}
 
-    thread = threading.Thread(target=_run_canon, args=(req.paths,), daemon=True)
+    thread = threading.Thread(target=_run_canon, args=(req.paths, req.faction_id), daemon=True)
     thread.start()
     return {"started": True, "total": len(req.paths)}
+
+
+@app.get("/api/factions")
+def list_factions():
+    return {"factions": [{"id": f["id"], "label": f["label"]} for f in factions_module.list_factions()]}
 
 
 @app.get("/api/gallery/canon-progress")
@@ -673,6 +691,15 @@ def gallery_rating(req: RatingRequest):
     except (FileNotFoundError, ValueError) as e:
         raise HTTPException(400, str(e))
     return {"path": req.path, "rating": req.rating}
+
+
+@app.post("/api/gallery/character")
+def gallery_character(req: CharacterRequest):
+    try:
+        gallery_module.set_character_name(req.path, req.character_name)
+    except FileNotFoundError as e:
+        raise HTTPException(404, str(e))
+    return {"path": req.path, "character_name": req.character_name.strip() or None}
 
 
 @app.get("/api/gallery/item")
@@ -726,12 +753,14 @@ def renegat_publish(req: RenegatPublishRequest):
     return _run_renegat_cli(args)
 
 
-def _run_dedupe(threshold: float, category: str | None):
+def _run_dedupe(threshold: float, category: str | None, source_folder: str | None):
     STATE["dedupe_job"] = {"status": "running", "done": 0, "total": 0, "phase": "scan", "cancel_requested": False}
     try:
         items = gallery_module.list_gallery()
         if category:
             items = [i for i in items if i["category_label"] == category]
+        if source_folder:
+            items = [i for i in items if i["source_folder"] == source_folder]
         files = [Path(i["path"]) for i in items]
         groups = dedupe_module.find_duplicate_groups(files, threshold, progress=STATE["dedupe_job"])
         if STATE["dedupe_job"]["status"] == "running":
@@ -748,7 +777,7 @@ def dedupe(req: DedupeRequest):
             raise HTTPException(409, "Une détection de doublons est déjà en cours")
         STATE["dedupe_job"] = {"status": "running", "done": 0, "total": 0, "phase": "scan", "cancel_requested": False}
 
-    thread = threading.Thread(target=_run_dedupe, args=(req.threshold, req.category), daemon=True)
+    thread = threading.Thread(target=_run_dedupe, args=(req.threshold, req.category, req.source_folder), daemon=True)
     thread.start()
     return {"started": True}
 
@@ -785,13 +814,13 @@ def dedupe_discard(req: DiscardRequest):
     return {"trashed_to": trashed_to}
 
 
-def _run_graph(category: str | None, top_k: int, min_similarity: float, mode: str):
+def _run_graph(category: str | None, top_k: int, min_similarity: float, mode: str, source_folder: str | None):
     STATE["graph_job"] = {"status": "running", "done": 0, "total": 0, "phase": "scan", "cancel_requested": False}
     try:
         if mode == "identity":
-            data = identity_module.build_identity_graph(top_k, min_similarity, progress=STATE["graph_job"])
+            data = identity_module.build_identity_graph(top_k, min_similarity, source_folder, progress=STATE["graph_job"])
         else:
-            data = graph_module.build_similarity_graph(category, top_k, min_similarity, progress=STATE["graph_job"])
+            data = graph_module.build_similarity_graph(category, top_k, min_similarity, source_folder, progress=STATE["graph_job"])
         if STATE["graph_job"]["status"] == "running":
             STATE["graph_data"] = data
             STATE["graph_job"]["status"] = "done"
@@ -807,7 +836,7 @@ def gallery_graph(req: GraphRequest):
         STATE["graph_job"] = {"status": "running", "done": 0, "total": 0, "phase": "scan", "cancel_requested": False}
 
     thread = threading.Thread(
-        target=_run_graph, args=(req.category, req.top_k, req.min_similarity, req.mode), daemon=True
+        target=_run_graph, args=(req.category, req.top_k, req.min_similarity, req.mode, req.source_folder), daemon=True
     )
     thread.start()
     return {"started": True}
