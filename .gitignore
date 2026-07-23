@@ -6,6 +6,9 @@ __pycache__/
 # Données locales (cache embeddings, logs d'application)
 data/
 
+# Planches contact générées (exports/gallery/export)
+exports/
+
 # Poids de modèles téléchargés
 *.pt
 *.onnx

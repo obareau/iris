@@ -23,6 +23,7 @@ import gallery as gallery_module
 import library
 import mounts
 import organizer
+import portfolio as portfolio_module
 import prefilter
 import scanner
 
@@ -31,6 +32,8 @@ app = FastAPI(title="Argus")
 RECTA_DIR = Path.home() / "DEV" / "Recta"
 
 STATIC_DIR = Path(__file__).parent.parent / "static"
+EXPORTS_DIR = Path(__file__).parent.parent / "exports"
+EXPORTS_DIR.mkdir(parents=True, exist_ok=True)
 
 STATE = {
     "categories": [dict(c) for c in classifier.DEFAULT_CATEGORIES],
@@ -882,4 +885,18 @@ def gallery_taxonomy_cross(label_a: str, label_b: str):
     return gallery_module.taxonomy_cross(label_a, label_b)
 
 
+class ExportRequest(BaseModel):
+    paths: list[str]
+    title: str = "Sélection Iris"
+
+
+@app.post("/api/gallery/export")
+def gallery_export(req: ExportRequest):
+    if not req.paths:
+        raise HTTPException(400, "Rien à exporter")
+    out_path = portfolio_module.build_contact_sheet(req.paths, req.title)
+    return {"url": f"/exports/{out_path.name}"}
+
+
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+app.mount("/exports", StaticFiles(directory=EXPORTS_DIR), name="exports")

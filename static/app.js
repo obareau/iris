@@ -1342,6 +1342,7 @@ const galBulkCount = $("galBulkCount");
 const galBulkClearBtn = $("galBulkClearBtn");
 const galBulkStars = $("galBulkStars");
 const galBulkDeleteBtn = $("galBulkDeleteBtn");
+const galBulkExportBtn = $("galBulkExportBtn");
 const galBulkRefineBtn = $("galBulkRefineBtn");
 const galBulkRefineCancelBtn = $("galBulkRefineCancelBtn");
 wireCancelBtn(galBulkRefineCancelBtn, "/api/gallery/refine/cancel");
@@ -1421,6 +1422,26 @@ galBulkStars.querySelectorAll("span").forEach(s => {
       galBulkStars.style.pointerEvents = "";
     }
   });
+});
+
+galBulkExportBtn.addEventListener("click", async () => {
+  const paths = [...galSelectedPaths];
+  if (!paths.length) return;
+  const title = `Sélection Iris — ${new Date().toLocaleDateString("fr-FR")}`;
+  galBulkExportBtn.disabled = true;
+  galBulkExportBtn.textContent = "Export en cours…";
+  try {
+    const res = await fetch("/api/gallery/export", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ paths, title }),
+    });
+    if (!res.ok) { alert("Erreur : " + (await res.text())); return; }
+    const data = await res.json();
+    window.open(data.url, "_blank");
+  } finally {
+    galBulkExportBtn.disabled = false;
+    galBulkExportBtn.textContent = "Exporter en planche contact";
+  }
 });
 
 galBulkDeleteBtn.addEventListener("click", async () => {
