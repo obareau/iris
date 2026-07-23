@@ -627,7 +627,36 @@ undoBtn.addEventListener("click", async () => {
 const browseModal = $("browseModal");
 const browsePathEl = $("browsePath");
 const browseListEl = $("browseList");
+const browseShortcutsEl = $("browseShortcuts");
 let browseTargetInput = null, browseCurrentPath = null, browseParentPath = null;
+
+const SHORTCUT_GROUP_LABELS = { local: "Local", removable: "Clés USB", network: "Réseau", mount: "Montages" };
+
+async function browseRenderShortcuts() {
+  const res = await fetch("/api/browse/shortcuts");
+  const data = await res.json();
+  browseShortcutsEl.innerHTML = "";
+  for (const groupKey of ["local", "removable", "network", "mount"]) {
+    const items = data.shortcuts.filter(s => s.group === groupKey);
+    if (!items.length) continue;
+    const group = document.createElement("div");
+    group.className = "shortcut-group";
+    const label = document.createElement("div");
+    label.className = "shortcut-group-label";
+    label.textContent = SHORTCUT_GROUP_LABELS[groupKey];
+    group.appendChild(label);
+    for (const sc of items) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "shortcut-item" + (browseCurrentPath === sc.path ? " active" : "");
+      btn.textContent = sc.label;
+      btn.title = sc.detail ? `${sc.path} (${sc.detail})` : sc.path;
+      btn.addEventListener("click", () => browseLoad(sc.path));
+      group.appendChild(btn);
+    }
+    browseShortcutsEl.appendChild(group);
+  }
+}
 
 async function browseLoad(path) {
   const url = path ? `/api/browse?path=${encodeURIComponent(path)}` : "/api/browse";
@@ -643,15 +672,16 @@ async function browseLoad(path) {
   browseListEl.innerHTML = "";
   if (!data.entries.length) {
     browseListEl.innerHTML = '<div class="browse-empty">Aucun sous-dossier</div>';
-    return;
+  } else {
+    for (const entry of data.entries) {
+      const div = document.createElement("div");
+      div.className = "browse-item";
+      div.textContent = "📁 " + entry.name;
+      div.addEventListener("click", () => browseLoad(entry.path));
+      browseListEl.appendChild(div);
+    }
   }
-  for (const entry of data.entries) {
-    const div = document.createElement("div");
-    div.className = "browse-item";
-    div.textContent = "📁 " + entry.name;
-    div.addEventListener("click", () => browseLoad(entry.path));
-    browseListEl.appendChild(div);
-  }
+  browseRenderShortcuts(); // rafraîchit le surlignage "actif" selon le nouveau chemin
 }
 
 document.querySelectorAll("[data-browse-target]").forEach(btn => {

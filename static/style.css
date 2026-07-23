@@ -567,12 +567,32 @@ textarea { resize: vertical; }
   border: 1px solid var(--border);
   border-radius: 12px;
   padding: 18px;
-  width: 560px; max-width: 92vw; max-height: 82vh;
+  width: 720px; max-width: 92vw; max-height: 82vh;
   display: flex; flex-direction: column; gap: 12px;
 }
 .modal-header { display: flex; justify-content: space-between; align-items: center; }
 .modal-header h2 { margin: 0; font-size: 16px; }
 .modal-actions { display: flex; justify-content: space-between; }
+.browse-body { display: flex; gap: 12px; flex: 1; min-height: 0; }
+.browse-shortcuts {
+  flex: 0 0 170px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px;
+}
+.shortcut-group + .shortcut-group { margin-top: 12px; }
+.shortcut-group-label {
+  font-size: 11px; text-transform: uppercase; letter-spacing: 0.03em;
+  color: var(--muted); padding: 4px 6px;
+}
+.shortcut-item {
+  display: block; width: 100%; text-align: left;
+  background: none; border: none; color: var(--text);
+  font-size: 13px; padding: 6px 6px; border-radius: 6px; cursor: pointer;
+}
+.shortcut-item:hover { background: var(--bg-3); }
+.shortcut-item.active { background: var(--bg-2); color: var(--accent); }
 .browse-list {
   overflow-y: auto;
   border: 1px solid var(--border);

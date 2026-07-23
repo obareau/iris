@@ -20,6 +20,7 @@ import identity as identity_module
 import details as details_module
 import gallery as gallery_module
 import library
+import mounts
 import organizer
 import prefilter
 import scanner
@@ -157,6 +158,11 @@ def browse(path: str | None = None):
         raise HTTPException(403, "Accès refusé à ce dossier")
     parent = str(base.parent) if base.parent != base else None
     return {"path": str(base), "parent": parent, "entries": entries}
+
+
+@app.get("/api/browse/shortcuts")
+def browse_shortcuts():
+    return {"shortcuts": mounts.list_shortcuts()}
 
 
 @app.post("/api/scan")
