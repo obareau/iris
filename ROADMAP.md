@@ -9,17 +9,13 @@ valeur/effort plutôt que par ordre d'idée.
 
 ## Phase 1 — Rapide, valeur immédiate
 
-- [ ] **Notifications ntfy sur fin de job long** — analyse, score esthétique,
-      vérification de canon peuvent tourner plusieurs minutes sur un gros lot ;
-      tout le reste du homelab notifie déjà (backups, watchdogs). Topic
-      `robo-serveur`, message court (job + nombre de photos + durée).
-- [ ] **README.md à jour** — ne documente encore que le Tri d'origine (3 passes,
-      rangement). Galerie/Doublons/Graphe/Taxonomie/Recta/Bibliothèque/canon/MCP
-      n'y figurent pas du tout.
-- [ ] **Santé de la bibliothèque** (onglet Bibliothèque) — par dossier : nombre
+- [x] **Santé de la bibliothèque** (onglet Bibliothèque) — par dossier : nombre
       de photos, combien sans sidecar / sans score esthétique / sans verdict de
-      canon, dossier accessible ou non (utile pour un dossier réseau démonté —
-      actuellement `list_gallery()` l'ignore silencieusement si `is_dir()` échoue).
+      canon, dossier accessible ou non. Fait le 2026-07-23.
+- [x] **README.md à jour** — reflète maintenant tous les onglets, le score
+      esthétique, la vérification de canon, le MCP. Fait le 2026-07-23.
+- [x] ~~Notifications ntfy sur fin de job long~~ — écarté par Olivier
+      (2026-07-23), pas d'intérêt perçu pour cet usage.
 - [ ] **Étendre le pipeline complet** — "Tout faire d'un coup" enchaîne
       analyse→détails→attributs→applique ; ajouter deux étapes optionnelles
       (score esthétique, vérification canon) pour un gros import traité de bout
