@@ -51,18 +51,25 @@ valeur/effort plutôt que par ordre d'idée.
 
 ## Phase 3 — Plus gros chantiers, exploratoire
 
-- [ ] **Auto-scan périodique de `_a_trier`** — timer systemd (comme les timers
-      Recta) qui déclenche l'analyse automatiquement quand des fichiers
-      apparaissent, sans clic manuel sur "Analyser".
-- [ ] **Export portfolio / planche contact** — générer une page web ou un PDF
-      d'une sélection de photos pour la partager hors d'Iris (revue, référence
-      externe), au lieu de dépendre uniquement de la Galerie.
-- [ ] **Taxonomie croisée** — croiser deux attributs (ex: Faction devinée ×
-      Verdict canon, ou Catégorie × Note) pour repérer des incohérences en masse
-      plutôt qu'attribut par attribut.
-- [ ] **Suivi Argus** — ajouter Iris à `~/DEV/Argus/projects.yaml` (`extra:`)
-      pour bénéficier du provisioning auto ROADMAP/CHANGELOG et du contexte
-      `argus_context()` en début de session, comme les projets sous `~/DEV`.
+- [x] **Auto-scan périodique de `_a_trier`** — timer systemd user
+      (`iris-auto-scan.timer`, toutes les 15 min, comme recta-renegat) qui
+      déclenche `/api/analyze` automatiquement quand des fichiers non encore
+      analysés attendent dans `_a_trier`. Le script (`~/scripts/
+      iris-auto-scan.sh`) ne relance rien si le dossier est vide, une analyse
+      tourne déjà, ou les résultats déjà en mémoire couvrent déjà tout le
+      dossier (évite de re-brûler du GPU en boucle tant que personne n'a
+      appliqué le tri). Testé en réel : déclenche bien sur un fichier neuf,
+      n'agit pas au second passage. Fait le 2026-07-23.
+- [x] **Export portfolio / planche contact** — page HTML autonome (images en
+      base64, zéro dépendance externe) générée depuis la sélection de la
+      Galerie (`backend/portfolio.py`), servie via `/exports`, ouverte
+      automatiquement dans un nouvel onglet. Fait le 2026-07-23.
+- [x] **Taxonomie croisée** — section "Analyse croisée" dans l'onglet
+      Taxonomie, croise deux attributs (ou pseudo-attributs : Catégorie,
+      Faction devinée, Verdict canon, Personnage) en table de comptage. Fait
+      le 2026-07-23.
+- [x] **Suivi Argus** — Iris ajouté à `~/DEV/Argus/projects.yaml` (`extra:`),
+      CHANGELOG.md provisionné. Fait le 2026-07-23.
 
 ## Déjà fait (pour mémoire, ne pas refaire)
 
@@ -74,4 +81,12 @@ faction choisie, score CLIP discriminant) · Nommage des identités récurrentes
 (Galerie + Graphe) · EXIF write-back · Bibliothèque multi-dossiers avec
 raccourcis réseau/USB/montages + santé par dossier · Filtre dossier source
 dans Doublons/Graphe · MCP `iris` (lecture seule, 5 outils) · Pipeline complet
-en un clic · Annulation de job sur les 6 types de tâche longue.
+en un clic · Annulation de job sur les 6 types de tâche longue · Auto-scan
+périodique de `_a_trier` · Export en planche contact · Taxonomie croisée ·
+Suivi Argus.
+
+## Reste ouvert
+
+- [ ] **Étendre le pipeline complet** (Phase 1) — "Tout faire d'un coup"
+      pourrait aussi inclure score esthétique + vérification canon en options,
+      pas seulement analyse→détails→attributs→applique.
