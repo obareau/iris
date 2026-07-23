@@ -770,20 +770,28 @@ const libListEl = $("libList");
 const libEmptyEl = $("libEmpty");
 
 async function libRender() {
-  const folders = await libFolders();
+  const res = await fetch("/api/library/health");
+  const data = await res.json();
+  const folders = data.folders || [];
   libListEl.innerHTML = "";
   libEmptyEl.style.display = folders.length ? "none" : "";
-  for (const folder of folders) {
+  for (const f of folders) {
     const row = document.createElement("div");
     row.className = "lib-row";
+    const status = f.accessible
+      ? `${f.total} photo${f.total > 1 ? "s" : ""} · ${f.no_sidecar} sans sidecar · ${f.no_aesthetic} sans score esthétique · ${f.no_canon} sans canon`
+      : `⚠️ dossier inaccessible (démonté ?)`;
     row.innerHTML = `
-      <div class="lib-row-path">📁 ${folder}</div>
+      <div>
+        <div class="lib-row-path">${f.accessible ? "📁" : "⚠️"} ${f.path}</div>
+        <div class="lib-row-count">${status}</div>
+      </div>
       <button type="button" class="btn ghost" style="color:var(--err);border-color:var(--err)">Retirer</button>
     `;
     row.querySelector("button").addEventListener("click", async () => {
       await fetch("/api/library/remove", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ path: folder }),
+        body: JSON.stringify({ path: f.path }),
       });
       libRender();
     });

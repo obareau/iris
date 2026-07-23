@@ -493,6 +493,11 @@ def get_library():
     return {"folders": library.list_folders()}
 
 
+@app.get("/api/library/health")
+def get_library_health():
+    return {"folders": gallery_module.library_health()}
+
+
 @app.post("/api/library/add")
 def library_add(req: LibraryFolderRequest):
     try:

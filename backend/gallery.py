@@ -88,6 +88,31 @@ def _write_sidecar(image_path: Path, data: dict) -> None:
     image_path.with_suffix(".json").write_text(json.dumps(data, ensure_ascii=False, indent=2))
 
 
+def library_health() -> list[dict]:
+    """Un coup d'œil par dossier de la bibliothèque — accessible ou non (utile
+    pour un dossier réseau démonté, qui sinon disparaît silencieusement de
+    list_gallery), et ce qui reste à faire dessus (sidecar/score/canon
+    manquants). Un seul passage sur list_gallery(), pas un scan par dossier."""
+    items = list_gallery()
+    by_folder: dict[str, list[dict]] = {}
+    for item in items:
+        by_folder.setdefault(item["source_folder"], []).append(item)
+
+    result = []
+    for folder in library.list_folders():
+        accessible = Path(folder).is_dir()
+        folder_items = by_folder.get(folder, [])
+        result.append({
+            "path": folder,
+            "accessible": accessible,
+            "total": len(folder_items),
+            "no_sidecar": sum(1 for i in folder_items if not i["has_sidecar"]),
+            "no_aesthetic": sum(1 for i in folder_items if i.get("aesthetic_score") is None),
+            "no_canon": sum(1 for i in folder_items if i.get("canon_verdict") is None),
+        })
+    return result
+
+
 def get_item(path: str) -> dict:
     """Fiche d'une seule photo, sans avoir besoin de reparcourir tout le
     dossier — utilisé par le MCP (iris_image_details) et par tout appelant
