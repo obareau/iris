@@ -24,6 +24,7 @@ import library
 import mounts
 import organizer
 import portfolio as portfolio_module
+import artbook as artbook_module
 import prefilter
 import scanner
 
@@ -896,6 +897,57 @@ def gallery_export(req: ExportRequest):
         raise HTTPException(400, "Rien à exporter")
     out_path = portfolio_module.build_contact_sheet(req.paths, req.title)
     return {"url": f"/exports/{out_path.name}"}
+
+
+class ArtbookRequest(BaseModel):
+    paths: list[str]
+    title: str = "Iris Artbook"
+    subtitle: str = ""
+    chapter_by: str = "category"  # "category" | "none"
+
+
+@app.post("/api/artbook")
+def artbook_build(req: ArtbookRequest):
+    """Auto-compose un modèle, le sauve, le rend, et renvoie le modèle éditable."""
+    if not req.paths:
+        raise HTTPException(400, "Aucune photo sélectionnée")
+    try:
+        model = artbook_module.compose_model(req.paths, req.title, req.subtitle, req.chapter_by)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    artbook_module.save_model(model)
+    out_path, stats = artbook_module.render_model(model)
+    return {"id": model["id"], "url": f"/exports/{out_path.name}", "model": model, **stats}
+
+
+@app.get("/api/artbook")
+def artbook_list():
+    return {"models": artbook_module.list_models()}
+
+
+@app.get("/api/artbook/{mid}")
+def artbook_get(mid: str):
+    model = artbook_module.load_model(mid)
+    if not model:
+        raise HTTPException(404, "Artbook introuvable")
+    return {"model": model}
+
+
+class ArtbookModel(BaseModel):
+    model: dict
+
+
+@app.post("/api/artbook/{mid}/render")
+def artbook_render(mid: str, req: ArtbookModel):
+    """Sauve le modèle édité et re-rend le HTML."""
+    model = req.model
+    model["id"] = mid
+    artbook_module.save_model(model)
+    try:
+        out_path, stats = artbook_module.render_model(model)
+    except Exception as e:
+        raise HTTPException(400, f"Rendu échoué : {e}")
+    return {"id": mid, "url": f"/exports/{out_path.name}", **stats}
 
 
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")

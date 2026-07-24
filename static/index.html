@@ -182,6 +182,20 @@
         <button id="libAddBtn" class="btn primary full">+ Ajouter à la bibliothèque</button>
         <small>Chaque dossier ajouté est vu par la Galerie, Doublons, Graphe, Taxonomie et Recta comme une seule collection unifiée — plus besoin de retaper un chemin dans chaque onglet.</small>
       </section>
+      <section class="pblock">
+        <h3>Traitement en masse</h3>
+        <small>Score esthétique et vérification de canon sur toute la bibliothèque, par lots avec pause entre chaque — laisse le GPU refroidir plutôt que d'enchaîner des centaines de photos d'affilée. Ne traite que les photos qui n'ont pas encore le champ concerné.</small>
+        <label class="field">Taille de lot
+          <input type="number" id="batchSize" value="20" min="1" style="width:100%" />
+        </label>
+        <label class="field">Pause entre lots (secondes)
+          <input type="number" id="batchCooldown" value="20" min="0" style="width:100%" />
+        </label>
+        <button id="batchAestheticBtn" class="btn ghost full">Score esthétique (manquants)</button>
+        <button id="batchCanonBtn" class="btn ghost full" style="margin-top:8px">Vérification canon (manquants)</button>
+        <button id="batchCancelBtn" class="btn ghost full" style="margin-top:8px;color:var(--err);border-color:var(--err)" hidden>Annuler le traitement en masse</button>
+        <div class="status-line" id="batchStatus"></div>
+      </section>
     </aside>
     <main class="panel panel-center">
       <div id="libList" class="lib-list"></div>
@@ -253,6 +267,7 @@
             <span data-star="1">★</span><span data-star="2">★</span><span data-star="3">★</span><span data-star="4">★</span><span data-star="5">★</span>
           </span>
           <button id="galBulkExportBtn" class="btn ghost">Exporter en planche contact</button>
+          <button id="galBulkArtbookBtn" class="btn ghost">📖 Composer un artbook</button>
           <button id="galBulkDeleteBtn" class="btn ghost" style="color:var(--err);border-color:var(--err)">Supprimer la sélection</button>
         </div>
       </div>
@@ -537,6 +552,25 @@
       <button type="button" id="renegatConfirm" class="btn primary">Confirmer la publication</button>
     </div>
   </div>
+</div>
+
+<!-- Éditeur d'artbook (overlay plein écran) -->
+<div id="artbookEditor" class="ab-editor" hidden>
+  <div class="ab-bar">
+    <div class="ab-bar-left">
+      <strong id="abTitle">Artbook</strong>
+      <span class="ab-meta" id="abMeta"></span>
+    </div>
+    <div class="ab-bar-right">
+      <button class="btn ghost" data-ab-add="text">+ Texte</button>
+      <button class="btn ghost" data-ab-add="quote">+ Citation</button>
+      <button class="btn ghost" data-ab-add="chapter">+ Chapitre</button>
+      <button class="btn primary" id="abRegen">Régénérer l'aperçu ▸</button>
+      <button class="btn ghost" id="abClose">Fermer</button>
+    </div>
+  </div>
+  <div class="ab-hint">Ajuste chaque page : gabarit, recadrage (remplir/entier), ordre des photos, pages de texte. Puis « Régénérer l'aperçu ».</div>
+  <div class="ab-pages" id="abPages"></div>
 </div>
 
 <script src="/static/app.js"></script>

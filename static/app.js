@@ -839,6 +839,87 @@ libAddBtn.addEventListener("click", async () => {
   }
 });
 
+// ---------- Traitement en masse (score esthétique / canon, par lots + pause GPU) ----------
+const batchSizeEl = $("batchSize"), batchCooldownEl = $("batchCooldown");
+const batchAestheticBtn = $("batchAestheticBtn"), batchCanonBtn = $("batchCanonBtn");
+const batchCancelBtn = $("batchCancelBtn"), batchStatusEl = $("batchStatus");
+let batchCancelRequested = false;
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+/** Découpe `paths` en lots de `batchSizeEl` et enchaîne les jobs avec une
+ * pause de `batchCooldownEl` secondes entre chaque — laisse le GPU refroidir
+ * plutôt que d'enchaîner des centaines de photos d'affilée. Réutilise les
+ * endpoints existants tels quels (start/progress/cancel), aucun changement
+ * côté serveur : le découpage est purement une orchestration côté client. */
+async function runBatched(paths, startUrl, progressUrl, cancelUrl, label) {
+  const batchSize = Math.max(1, parseInt(batchSizeEl.value, 10) || 20);
+  const cooldown = Math.max(0, parseInt(batchCooldownEl.value, 10) || 0);
+  const batches = [];
+  for (let i = 0; i < paths.length; i += batchSize) batches.push(paths.slice(i, i + batchSize));
+
+  for (let b = 0; b < batches.length; b++) {
+    if (batchCancelRequested) { batchStatusEl.textContent = "Annulé."; return; }
+    const batch = batches[b];
+    batchStatusEl.textContent = `${label} — lot ${b + 1}/${batches.length} (${batch.length} photos)`;
+    const res = await fetch(startUrl, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ paths: batch }),
+    });
+    if (!res.ok) { batchStatusEl.textContent = "Erreur : " + (await res.text()); return; }
+
+    while (true) {
+      if (batchCancelRequested) { await fetch(cancelUrl, { method: "POST" }); batchStatusEl.textContent = "Annulé."; return; }
+      const p = await fetch(progressUrl).then(r => r.json());
+      batchStatusEl.textContent = `${label} — lot ${b + 1}/${batches.length} — ${p.done}/${p.total}`;
+      if (p.status !== "running") {
+        if (p.status === "error") { batchStatusEl.textContent = `Erreur (lot ${b + 1}) : ` + p.current; return; }
+        break;
+      }
+      await sleep(700);
+    }
+
+    if (b < batches.length - 1 && cooldown > 0) {
+      for (let s = cooldown; s > 0; s--) {
+        if (batchCancelRequested) { batchStatusEl.textContent = "Annulé."; return; }
+        batchStatusEl.textContent = `${label} — pause GPU… ${s}s avant le lot ${b + 2}/${batches.length}`;
+        await sleep(1000);
+      }
+    }
+  }
+  batchStatusEl.textContent = `${label} — terminé sur ${paths.length} photo(s), ${batches.length} lot(s).`;
+}
+
+batchAestheticBtn.addEventListener("click", async () => {
+  const data = await fetch("/api/gallery").then(r => r.json());
+  const paths = data.items.filter(i => i.aesthetic_score == null).map(i => i.path);
+  if (!paths.length) { batchStatusEl.textContent = "Rien à faire — toutes les photos ont déjà un score esthétique."; return; }
+  if (!confirm(`Calculer le score esthétique de ${paths.length} photo(s), par lots ?`)) return;
+  batchCancelRequested = false;
+  batchAestheticBtn.disabled = true; batchCanonBtn.disabled = true; batchCancelBtn.hidden = false;
+  try {
+    await runBatched(paths, "/api/gallery/aesthetic", "/api/gallery/aesthetic-progress", "/api/gallery/aesthetic/cancel", "Score esthétique");
+  } finally {
+    batchAestheticBtn.disabled = false; batchCanonBtn.disabled = false; batchCancelBtn.hidden = true;
+  }
+});
+
+batchCanonBtn.addEventListener("click", async () => {
+  const data = await fetch("/api/gallery").then(r => r.json());
+  const paths = data.items.filter(i => i.canon_verdict == null).map(i => i.path);
+  if (!paths.length) { batchStatusEl.textContent = "Rien à faire — toutes les photos ont déjà un verdict de canon."; return; }
+  if (!confirm(`Vérifier le canon de ${paths.length} photo(s), par lots (un appel Qwen2-VL par photo — plus lent) ?`)) return;
+  batchCancelRequested = false;
+  batchAestheticBtn.disabled = true; batchCanonBtn.disabled = true; batchCancelBtn.hidden = false;
+  try {
+    await runBatched(paths, "/api/gallery/canon", "/api/gallery/canon-progress", "/api/gallery/canon/cancel", "Vérification canon");
+  } finally {
+    batchAestheticBtn.disabled = false; batchCanonBtn.disabled = false; batchCancelBtn.hidden = true;
+  }
+});
+
+batchCancelBtn.addEventListener("click", () => { batchCancelRequested = true; });
+
 // ---------- Galerie ----------
 const galLibSummary = $("galLibSummary");
 const galLoadBtn = $("galLoadBtn");
@@ -1453,6 +1534,187 @@ galBulkExportBtn.addEventListener("click", async () => {
   } finally {
     galBulkExportBtn.disabled = false;
     galBulkExportBtn.textContent = "Exporter en planche contact";
+  }
+});
+
+const galBulkArtbookBtn = document.getElementById("galBulkArtbookBtn");
+galBulkArtbookBtn.addEventListener("click", async () => {
+  const paths = [...galSelectedPaths];
+  if (!paths.length) { alert("Sélectionne d'abord des photos."); return; }
+  const title = prompt("Titre de l'artbook :", "Iris Artbook");
+  if (title === null) return;
+  const byChapter = confirm(
+    "Découper en chapitres par catégorie ?\n\nOK = chapitres par catégorie · Annuler = un seul flux continu"
+  );
+  galBulkArtbookBtn.disabled = true;
+  galBulkArtbookBtn.textContent = "Composition… (curation + mise en page)";
+  try {
+    const res = await fetch("/api/artbook", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ paths, title: title || "Iris Artbook", chapter_by: byChapter ? "category" : "none" }),
+    });
+    if (!res.ok) { alert("Erreur : " + (await res.text())); return; }
+    const data = await res.json();
+    openArtbookEditor(data.model, data.id, data.url);
+  } finally {
+    galBulkArtbookBtn.disabled = false;
+    galBulkArtbookBtn.textContent = "📖 Composer un artbook";
+  }
+});
+
+// ===== Éditeur d'artbook =====
+let abModel = null, abId = null;
+const abEditor = document.getElementById("artbookEditor");
+const abPagesEl = document.getElementById("abPages");
+const IMG_TPLS = ["full", "duo", "trio", "quad"];
+const SLOTS_N = { full: 1, duo: 2, trio: 3, quad: 4 };
+
+function openArtbookEditor(model, id, url) {
+  abModel = model; abId = id;
+  document.getElementById("abTitle").textContent = model.title || "Artbook";
+  abEditor.hidden = false;
+  abRenderEditor();
+  if (url) window.open(url, "_blank"); // aperçu initial
+}
+
+function abClose() { abEditor.hidden = true; abModel = null; abId = null; }
+document.getElementById("abClose").addEventListener("click", abClose);
+
+function abRenderEditor() {
+  const imgCount = abModel.pages.filter(p => IMG_TPLS.includes(p.tpl)).reduce((n, p) => n + (p.items?.length || 0), 0);
+  document.getElementById("abMeta").textContent = `${abModel.pages.length} pages · ${imgCount} photos`;
+  abPagesEl.innerHTML = "";
+  abModel.pages.forEach((pg, idx) => abPagesEl.appendChild(abPageCard(pg, idx)));
+}
+
+function abThumb(path) { return "/api/thumbnail?path=" + encodeURIComponent(path); }
+
+function abPageCard(pg, idx) {
+  const card = document.createElement("div");
+  card.className = "ab-page";
+  const label = { cover: "Couverture", chapter: "Chapitre", text: "Texte", quote: "Citation",
+                  full: "Pleine page", duo: "Duo", trio: "Trio", quad: "Grille 4" }[pg.tpl] || pg.tpl;
+
+  // en-tête + boutons page
+  const head = document.createElement("div");
+  head.className = "ab-page-head";
+  head.innerHTML = `<span class="ab-page-num">P.${idx + 1}</span><span class="ab-page-type">${label}</span><span class="sp"></span>`;
+  const mkIcon = (txt, title, fn, danger) => {
+    const b = document.createElement("button"); b.className = "ab-icon" + (danger ? " danger" : "");
+    b.textContent = txt; b.title = title; b.onclick = fn; return b;
+  };
+  if (pg.tpl !== "cover") {
+    head.appendChild(mkIcon("↑", "Monter", () => abMovePage(idx, -1)));
+    head.appendChild(mkIcon("↓", "Descendre", () => abMovePage(idx, +1)));
+    head.appendChild(mkIcon("✕", "Supprimer la page", () => abDeletePage(idx), true));
+  }
+  card.appendChild(head);
+
+  if (IMG_TPLS.includes(pg.tpl)) {
+    // sélecteur de gabarit
+    const tpls = document.createElement("div"); tpls.className = "ab-tpls";
+    IMG_TPLS.forEach(t => {
+      const b = document.createElement("button");
+      b.className = "ab-tpl" + (t === pg.tpl ? " active" : "");
+      b.textContent = { full: "Pleine", duo: "Duo", trio: "Trio", quad: "Grille 4" }[t];
+      b.onclick = () => abSetTemplate(idx, t);
+      tpls.appendChild(b);
+    });
+    card.appendChild(tpls);
+    // slots photos
+    const slots = document.createElement("div"); slots.className = "ab-slots";
+    (pg.items || []).forEach((path, si) => {
+      const fit = (pg.fits || {})[path] || "cover";
+      const slot = document.createElement("div"); slot.className = "ab-slot";
+      slot.innerHTML = `<img class="${fit === "contain" ? "contain" : ""}" src="${abThumb(path)}" alt="" />`;
+      const ctl = document.createElement("div"); ctl.className = "ab-slot-ctl";
+      const fitBtn = document.createElement("button"); fitBtn.className = "fit";
+      fitBtn.textContent = fit === "contain" ? "entier" : "remplir";
+      fitBtn.title = "Recadrage : remplir (rogne) / entier (marges)";
+      fitBtn.onclick = () => abToggleFit(idx, path);
+      const left = document.createElement("button"); left.textContent = "◀"; left.title = "Reculer"; left.onclick = () => abMovePhoto(idx, si, -1);
+      const right = document.createElement("button"); right.textContent = "▶"; right.title = "Avancer"; right.onclick = () => abMovePhoto(idx, si, +1);
+      const rm = document.createElement("button"); rm.textContent = "✕"; rm.title = "Retirer"; rm.onclick = () => abRemovePhoto(idx, si);
+      ctl.append(fitBtn, left, right, rm);
+      slot.appendChild(ctl);
+      slots.appendChild(slot);
+    });
+    card.appendChild(slots);
+  } else if (pg.tpl === "cover") {
+    const wrap = document.createElement("div");
+    wrap.innerHTML = pg.hero ? `<img class="ab-cover-thumb" src="${abThumb(pg.hero)}" />` : "";
+    const f = abFields([
+      ["Titre", "title", pg.title || "", false],
+      ["Sous-titre", "subtitle", pg.subtitle || "", false],
+    ], idx);
+    wrap.appendChild(f); card.appendChild(wrap);
+  } else if (pg.tpl === "chapter") {
+    card.appendChild(abFields([["Titre du chapitre", "title", pg.title || "", false]], idx));
+  } else if (pg.tpl === "text") {
+    card.appendChild(abFields([
+      ["Surtitre (optionnel)", "kicker", pg.kicker || "", false],
+      ["Titre", "heading", pg.heading || "", false],
+      ["Texte", "body", pg.body || "", true],
+    ], idx));
+  } else if (pg.tpl === "quote") {
+    card.appendChild(abFields([
+      ["Citation", "quote", pg.quote || "", true],
+      ["Attribution", "attribution", pg.attribution || "", false],
+    ], idx));
+  }
+  return card;
+}
+
+function abFields(defs, idx) {
+  const box = document.createElement("div"); box.className = "ab-fields";
+  defs.forEach(([label, key, val, multi]) => {
+    const l = document.createElement("label"); l.textContent = label;
+    const el = document.createElement(multi ? "textarea" : "input");
+    el.value = val;
+    el.oninput = () => { abModel.pages[idx][key] = el.value; };
+    box.append(l, el);
+  });
+  return box;
+}
+
+// mutations
+function abMovePage(idx, d) { const j = idx + d; if (j < 1 || j >= abModel.pages.length) return;
+  [abModel.pages[idx], abModel.pages[j]] = [abModel.pages[j], abModel.pages[idx]]; abRenderEditor(); }
+function abDeletePage(idx) { abModel.pages.splice(idx, 1); abRenderEditor(); }
+function abSetTemplate(idx, t) { abModel.pages[idx].tpl = t; abRenderEditor(); }
+function abToggleFit(idx, path) { const pg = abModel.pages[idx]; pg.fits = pg.fits || {};
+  pg.fits[path] = (pg.fits[path] === "contain") ? "cover" : "contain"; abRenderEditor(); }
+function abMovePhoto(idx, si, d) { const it = abModel.pages[idx].items; const j = si + d;
+  if (j < 0 || j >= it.length) return; [it[si], it[j]] = [it[j], it[si]]; abRenderEditor(); }
+function abRemovePhoto(idx, si) { abModel.pages[idx].items.splice(si, 1);
+  if (!abModel.pages[idx].items.length) abModel.pages.splice(idx, 1); abRenderEditor(); }
+
+// ajout de pages
+document.querySelectorAll("[data-ab-add]").forEach(btn => {
+  btn.addEventListener("click", () => {
+    const kind = btn.dataset.abAdd;
+    const page = kind === "text" ? { tpl: "text", kicker: "", heading: "Titre", body: "Votre texte…" }
+      : kind === "quote" ? { tpl: "quote", quote: "Une citation marquante.", attribution: "" }
+      : { tpl: "chapter", title: "Nouveau chapitre" };
+    abModel.pages.push(page); abRenderEditor();
+    abPagesEl.lastElementChild?.scrollIntoView({ behavior: "smooth", block: "center" });
+  });
+});
+
+// régénération de l'aperçu
+document.getElementById("abRegen").addEventListener("click", async () => {
+  const btn = document.getElementById("abRegen");
+  btn.disabled = true; btn.textContent = "Rendu…";
+  try {
+    const res = await fetch(`/api/artbook/${abId}/render`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model: abModel }),
+    });
+    if (!res.ok) { alert("Erreur : " + (await res.text())); return; }
+    const data = await res.json();
+    window.open(data.url, "_blank");
+  } finally {
+    btn.disabled = false; btn.textContent = "Régénérer l'aperçu ▸";
   }
 });
 
