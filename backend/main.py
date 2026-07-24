@@ -904,6 +904,7 @@ class ArtbookRequest(BaseModel):
     title: str = "Iris Artbook"
     subtitle: str = ""
     chapter_by: str = "category"  # "category" | "none"
+    theme: str = "editorial"      # "editorial" | "brutalist"
 
 
 @app.post("/api/artbook")
@@ -912,7 +913,7 @@ def artbook_build(req: ArtbookRequest):
     if not req.paths:
         raise HTTPException(400, "Aucune photo sélectionnée")
     try:
-        model = artbook_module.compose_model(req.paths, req.title, req.subtitle, req.chapter_by)
+        model = artbook_module.compose_model(req.paths, req.title, req.subtitle, req.chapter_by, req.theme)
     except ValueError as e:
         raise HTTPException(400, str(e))
     artbook_module.save_model(model)

@@ -1546,12 +1546,16 @@ galBulkArtbookBtn.addEventListener("click", async () => {
   const byChapter = confirm(
     "Découper en chapitres par catégorie ?\n\nOK = chapitres par catégorie · Annuler = un seul flux continu"
   );
+  const brutalist = confirm(
+    "Style ?\n\nOK = BRUTALISTE (IBM Plex, accents orange, photo + fiche technique)\nAnnuler = ÉDITORIAL (serif, beau livre classique)"
+  );
   galBulkArtbookBtn.disabled = true;
   galBulkArtbookBtn.textContent = "Composition… (curation + mise en page)";
   try {
     const res = await fetch("/api/artbook", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ paths, title: title || "Iris Artbook", chapter_by: byChapter ? "category" : "none" }),
+      body: JSON.stringify({ paths, title: title || "Iris Artbook",
+        chapter_by: byChapter ? "category" : "none", theme: brutalist ? "brutalist" : "editorial" }),
     });
     if (!res.ok) { alert("Erreur : " + (await res.text())); return; }
     const data = await res.json();
@@ -1573,12 +1577,23 @@ function openArtbookEditor(model, id, url) {
   abModel = model; abId = id;
   document.getElementById("abTitle").textContent = model.title || "Artbook";
   abEditor.hidden = false;
+  abUpdateThemeBtn();
   abRenderEditor();
   if (url) window.open(url, "_blank"); // aperçu initial
 }
 
 function abClose() { abEditor.hidden = true; abModel = null; abId = null; }
 document.getElementById("abClose").addEventListener("click", abClose);
+
+const abThemeBtn = document.getElementById("abTheme");
+function abUpdateThemeBtn() {
+  abThemeBtn.textContent = "Thème : " + ((abModel?.theme === "brutalist") ? "Brutaliste" : "Éditorial");
+}
+abThemeBtn.addEventListener("click", () => {
+  if (!abModel) return;
+  abModel.theme = (abModel.theme === "brutalist") ? "editorial" : "brutalist";
+  abUpdateThemeBtn();
+});
 
 function abRenderEditor() {
   const imgCount = abModel.pages.filter(p => IMG_TPLS.includes(p.tpl)).reduce((n, p) => n + (p.items?.length || 0), 0);

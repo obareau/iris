@@ -33,6 +33,7 @@ import gallery as gallery_module
 BASE_DIR = Path(__file__).parent.parent
 EXPORTS_DIR = BASE_DIR / "exports"
 MODELS_DIR = BASE_DIR / "exports" / "artbook-models"
+FONTS_DIR = BASE_DIR / "static" / "fonts"
 
 HERO_MAX = 1600
 GRID_MAX = 1000
@@ -106,7 +107,22 @@ def _data_uri(path: Path, max_px: int) -> str:
 # ---------------------------------------------------------------------------
 # 1) COMPOSITION → modèle
 # ---------------------------------------------------------------------------
-def compose_model(paths, title="Iris Artbook", subtitle="", chapter_by="category") -> dict:
+def _spec_for(it: dict) -> list:
+    """Fiche technique auto (look brutaliste) depuis les métadonnées d'Iris."""
+    spec = []
+    if it.get("category_label") and it["category_label"] != "?":
+        spec.append(("Catégorie", it["category_label"]))
+    for a in (it.get("attributes") or [])[:4]:
+        if isinstance(a, dict) and a.get("label") and a.get("value"):
+            spec.append((str(a["label"]), str(a["value"])))
+    if it.get("aesthetic_score") is not None:
+        spec.append(("Score", f'{float(it["aesthetic_score"]):.1f} / 10'))
+    if it.get("rating"):
+        spec.append(("Note", "★" * int(it["rating"])))
+    return spec
+
+
+def compose_model(paths, title="Iris Artbook", subtitle="", chapter_by="category", theme="editorial") -> dict:
     meta = _meta_index()
     items = []
     for p in paths:
@@ -138,7 +154,13 @@ def compose_model(paths, title="Iris Artbook", subtitle="", chapter_by="category
     pages = [{"tpl": "cover", "hero": hero, "title": title,
               "subtitle": subtitle or datetime.now().strftime("%d %B %Y")}]
 
-    cycle = ["quad", "full", "duo", "trio", "full", "quad", "duo"]
+    # Brutaliste : là où l'éditorial met 2 photos (duo), on met photo + fiche
+    # technique (photo-text) auto-générée → beaucoup de texte, look magazine.
+    brut = theme == "brutalist"
+    cycle = (["full", "photo-text", "quad", "photo-text", "full", "trio", "photo-text"]
+             if brut else ["quad", "full", "duo", "trio", "full", "quad", "duo"])
+    fig_i = 0
+    by_path = {x["path"]: x for _, its, _ in chapters for x in its}
     for ci, (ctitle, its, _) in enumerate(chapters):
         if multi and ctitle:
             pages.append({"tpl": "chapter", "title": ctitle, "num": ci + 1, "count": len(its)})
@@ -149,6 +171,15 @@ def compose_model(paths, title="Iris Artbook", subtitle="", chapter_by="category
             i = 1
         while i < n:
             tpl = cycle[k % len(cycle)]; k += 1
+            if tpl == "photo-text":
+                path = paths_c[i]; i += 1; fig_i += 1
+                it = by_path.get(path, {})
+                pages.append({"tpl": "photo-text", "items": [path],
+                              "fig": f"FIG. {fig_i:02d}",
+                              "heading": it.get("character_name") or it.get("category_label") or "",
+                              "body": (it.get("details") or ""),
+                              "spec": _spec_for(it)})
+                continue
             need = SLOTS[tpl]
             if n - i < need:
                 need = n - i
@@ -160,6 +191,7 @@ def compose_model(paths, title="Iris Artbook", subtitle="", chapter_by="category
         "id": uuid.uuid4().hex[:12],
         "title": title,
         "subtitle": subtitle or datetime.now().strftime("%d %B %Y"),
+        "theme": theme,
         "createdAt": datetime.now().isoformat(timespec="seconds"),
         "pages": pages,
     }
@@ -235,6 +267,23 @@ def _render_page(pg: dict, meta: dict) -> str:
         return (f'<section class="page page-quote"><blockquote class="q-text">'
                 f'{_escape(pg.get("quote",""))}</blockquote>{attr}</section>')
 
+    # Photo + bloc texte (une photo, une colonne de texte) — cœur du look
+    # brutaliste : là où l'éditorial mettrait 2 photos, on met photo + texte.
+    if tpl == "photo-text":
+        fits = pg.get("fits") or {}
+        path = pg["items"][0]
+        it = meta.get(path, {})
+        img = f'<div class="pt-img">{_fig(path, "full", fits, meta, with_caption=False)}</div>'
+        spec = ""
+        if pg.get("spec"):
+            rows = "".join(f'<div class="pt-k">{_escape(k)}</div><div class="pt-v">{_escape(v)}</div>'
+                           for k, v in pg["spec"])
+            spec = f'<div class="pt-spec">{rows}</div>'
+        head = f'<h3 class="pt-head">{_escape(pg.get("heading",""))}</h3>' if pg.get("heading") else ""
+        body = f'<div class="pt-body"><p>{_nl2br(pg.get("body",""))}</p></div>' if pg.get("body") else ""
+        side = f'<div class="pt-txt"><div class="pt-fig">{_escape(pg.get("fig",""))}</div>{head}{body}{spec}</div>'
+        return f'<section class="page page-phototext">{img}{side}</section>'
+
     # gabarits image
     fits = pg.get("fits") or {}
     items = pg.get("items", [])
@@ -245,7 +294,7 @@ def _render_page(pg: dict, meta: dict) -> str:
     return f'<section class="page page-grid {grid}">{figs}</section>'
 
 
-CSS = """
+CSS_EDITORIAL = """
 :root { --page:210mm; --ink:#1a1a1a; --paper:#faf8f4; --muted:#8a8479; --accent:#b8863b; }
 *{box-sizing:border-box;} html,body{margin:0;padding:0;background:#3a3a3a;}
 body{font-family:'Iowan Old Style','Palatino Linotype',Palatino,Georgia,'Times New Roman',serif;color:var(--ink);}
@@ -286,20 +335,121 @@ body{font-family:'Iowan Old Style','Palatino Linotype',Palatino,Georgia,'Times N
 .page-grid figcaption{padding:3mm 4mm;font-size:9.5px;letter-spacing:.05em;}
 /* Recadrage par image : cover (remplit, rogne) vs contain (entier, marges) */
 figure.fit-cover img{object-fit:cover;} figure.fit-contain img{object-fit:contain;background:#efece6;}
+/* Photo + texte (éditorial) */
+.page-phototext{display:grid;grid-template-columns:1fr 1fr;}
+.page-phototext .pt-img{position:relative;} .page-phototext .pt-img figure{margin:0;width:100%;height:100%;} .page-phototext .pt-img img{width:100%;height:100%;object-fit:cover;}
+.page-phototext .pt-txt{padding:22mm 20mm;display:flex;flex-direction:column;justify-content:center;}
+.pt-fig{font-size:11px;letter-spacing:.28em;color:var(--accent);font-weight:600;margin-bottom:6mm;}
+.pt-head{font-size:24px;font-weight:600;margin:0 0 6mm;line-height:1.14;}
+.pt-body{font-size:13.5px;line-height:1.66;color:#33312c;} .pt-body p{margin:0 0 4mm;}
+.pt-spec{display:grid;grid-template-columns:auto 1fr;gap:2mm 6mm;margin-top:8mm;font-size:11px;}
+.pt-k{color:var(--muted);text-transform:uppercase;letter-spacing:.08em;} .pt-v{color:var(--ink);}
 """
+
+
+# ---------------------------------------------------------------------------
+# Thème BRUTALISTE : IBM Plex embarquée, accents orange, grille exposée
+# ---------------------------------------------------------------------------
+_FONT_FILES = {
+    "IBM Plex Mono:400": "ibm-plex-mono-400.woff2",
+    "IBM Plex Mono:600": "ibm-plex-mono-600.woff2",
+    "IBM Plex Sans:400": "ibm-plex-sans-400.woff2",
+    "IBM Plex Sans:700": "ibm-plex-sans-700.woff2",
+}
+
+
+def _embed_fonts() -> str:
+    faces = []
+    for key, fname in _FONT_FILES.items():
+        family, weight = key.split(":")
+        f = FONTS_DIR / fname
+        if not f.is_file():
+            continue
+        b64 = base64.b64encode(f.read_bytes()).decode("ascii")
+        faces.append(
+            f"@font-face{{font-family:'{family}';font-weight:{weight};font-style:normal;"
+            f"font-display:block;src:url(data:font/woff2;base64,{b64}) format('woff2');}}"
+        )
+    return "".join(faces)
+
+
+CSS_BRUTALIST = """
+:root{--page:210mm;--ink:#141414;--paper:#f2efe9;--muted:#7a756c;--accent:#fe5000;--line:#141414;}
+*{box-sizing:border-box;} html,body{margin:0;padding:0;background:#2b2b2b;}
+body{font-family:'IBM Plex Sans','Helvetica Neue',Arial,sans-serif;color:var(--ink);}
+@page{size:210mm 210mm;margin:0;}
+.page{width:var(--page);height:var(--page);position:relative;overflow:hidden;background:var(--paper);
+  page-break-after:always;break-after:page;margin:10mm auto;box-shadow:0 6px 30px rgba(0,0,0,.45);}
+@media print{.page{margin:0;box-shadow:none;}}
+.mono{font-family:'IBM Plex Mono',monospace;}
+/* Couverture : titre massif, réglure orange, métadonnées mono */
+.page-cover{background:#0e0e0e;color:#f2efe9;}
+.cover-bg{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;filter:grayscale(1) contrast(1.08);opacity:.72;}
+.cover-scrim{position:absolute;inset:0;background:linear-gradient(180deg,rgba(0,0,0,.2),rgba(0,0,0,.55));}
+.cover-text{position:absolute;left:14mm;right:14mm;bottom:16mm;}
+.cover-kicker{font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.3em;color:var(--accent);font-weight:600;margin-bottom:5mm;}
+.cover-title{font-size:60px;line-height:.98;font-weight:700;margin:0;letter-spacing:-.02em;text-transform:uppercase;}
+.cover-title::after{content:"";display:block;width:40mm;height:4px;background:var(--accent);margin-top:6mm;}
+.cover-sub{font-family:'IBM Plex Mono',monospace;margin-top:6mm;font-size:12px;letter-spacing:.1em;opacity:.85;}
+/* Chapitre : gros numéro orange, titre capitales */
+.page-chapter{display:flex;flex-direction:column;justify-content:center;padding:20mm;}
+.ch-num{font-family:'IBM Plex Mono',monospace;font-size:78px;font-weight:700;color:var(--accent);line-height:1;}
+.ch-title{font-size:44px;font-weight:700;margin:4mm 0 0;text-transform:uppercase;letter-spacing:-.01em;line-height:1;}
+.ch-rule{width:100%;height:3px;background:var(--line);margin:8mm 0 4mm;}
+.ch-count{font-family:'IBM Plex Mono',monospace;font-size:12px;letter-spacing:.12em;color:var(--muted);}
+/* Texte : capitales serrées, filet orange */
+.page-text{display:flex;flex-direction:column;justify-content:center;padding:26mm 28mm;}
+.tx-kicker{font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.28em;color:var(--accent);font-weight:600;margin-bottom:6mm;}
+.tx-heading{font-size:34px;font-weight:700;line-height:1.06;margin:0 0 8mm;text-transform:uppercase;letter-spacing:-.01em;}
+.tx-heading::after{content:"";display:block;width:26mm;height:3px;background:var(--accent);margin-top:5mm;}
+.tx-body{font-size:14px;line-height:1.68;} .tx-body p{margin:0 0 4mm;}
+/* Citation : énorme, mono, guillemet orange */
+.page-quote{display:flex;flex-direction:column;justify-content:center;padding:24mm;}
+.q-text{font-size:38px;line-height:1.15;font-weight:700;margin:0;text-transform:uppercase;letter-spacing:-.02em;}
+.q-text::before{content:"//";color:var(--accent);margin-right:.3em;}
+.q-attr{font-family:'IBM Plex Mono',monospace;margin-top:10mm;font-size:12px;letter-spacing:.16em;color:var(--muted);}
+/* Pleine page : n&b contrasté, légende mono barre orange */
+.page-full{display:flex;} .page-full figure{margin:0;width:100%;height:100%;position:relative;}
+.page-full img{width:100%;height:100%;display:block;object-fit:cover;filter:grayscale(1) contrast(1.06);}
+.page-full figcaption{position:absolute;left:0;bottom:0;padding:5mm 8mm;color:#f2efe9;font-family:'IBM Plex Mono',monospace;
+  font-size:11px;letter-spacing:.08em;background:var(--accent);text-transform:uppercase;}
+/* Grilles : gouttières nettes, fond papier, légendes mono */
+.page-grid{padding:12mm;display:grid;gap:6mm;background:var(--paper);}
+.g-duo{grid-template-columns:1fr;grid-template-rows:1fr 1fr;} .g-trio{grid-template-columns:1fr 1fr;}
+.g-trio figure:first-child{grid-column:1 / -1;} .g-quad{grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;}
+.page-grid figure{margin:0;position:relative;overflow:hidden;} .page-grid img{width:100%;height:100%;display:block;object-fit:cover;filter:grayscale(1) contrast(1.04);}
+.page-grid figcaption{position:absolute;left:0;bottom:0;padding:2mm 4mm;font-family:'IBM Plex Mono',monospace;font-size:9px;
+  letter-spacing:.06em;color:#141414;background:var(--accent);text-transform:uppercase;}
+figure.fit-contain img{object-fit:contain;background:#e6e2da;}
+/* Photo + texte : moitié image n&b, moitié fiche technique mono */
+.page-phototext{display:grid;grid-template-columns:1fr 1fr;}
+.pt-img{position:relative;} .pt-img figure{margin:0;width:100%;height:100%;} .pt-img img{width:100%;height:100%;object-fit:cover;filter:grayscale(1) contrast(1.06);}
+.pt-txt{padding:18mm 16mm;display:flex;flex-direction:column;justify-content:center;border-left:3px solid var(--accent);}
+.pt-fig{font-family:'IBM Plex Mono',monospace;font-size:12px;letter-spacing:.14em;color:var(--accent);font-weight:600;margin-bottom:6mm;}
+.pt-head{font-size:26px;font-weight:700;margin:0 0 6mm;text-transform:uppercase;line-height:1.06;letter-spacing:-.01em;}
+.pt-body{font-size:13px;line-height:1.62;} .pt-body p{margin:0 0 4mm;}
+.pt-spec{display:grid;grid-template-columns:auto 1fr;gap:2.4mm 6mm;margin-top:8mm;font-family:'IBM Plex Mono',monospace;font-size:11px;border-top:1.5px solid var(--line);padding-top:6mm;}
+.pt-k{color:var(--muted);text-transform:uppercase;letter-spacing:.06em;} .pt-v{color:var(--ink);font-weight:600;}
+"""
+
+THEMES = {"editorial": CSS_EDITORIAL, "brutalist": CSS_BRUTALIST}
 
 
 def render_model(model: dict) -> tuple[Path, dict]:
     EXPORTS_DIR.mkdir(parents=True, exist_ok=True)
     meta = _meta_index()
+    theme = model.get("theme", "editorial")
+    css = THEMES.get(theme, CSS_EDITORIAL)
+    fonts = _embed_fonts() if theme == "brutalist" else ""
     pages = model.get("pages", [])
     body = "".join(_render_page(pg, meta) for pg in pages)
     html = (f'<!doctype html><html lang="fr"><head><meta charset="utf-8" />'
-            f'<title>{_escape(model.get("title","Artbook"))}</title><style>{CSS}</style></head>'
+            f'<title>{_escape(model.get("title","Artbook"))}</title>'
+            f'<style>{fonts}{css}</style></head>'
             f'<body>{body}</body></html>')
     out = EXPORTS_DIR / f"artbook-{_slugify(model.get('title','artbook'))}-{datetime.now():%Y%m%d-%H%M%S}.html"
     out.write_text(html, encoding="utf-8")
-    n_photos = sum(len(p.get("items", [])) for p in pages if p.get("tpl") in IMAGE_TPLS)
+    n_photos = sum(len(p.get("items", [])) for p in pages if p.get("tpl") in IMAGE_TPLS or p.get("tpl") == "photo-text")
     return out, {"pages": len(pages), "photos": n_photos}
 
 
