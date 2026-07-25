@@ -1602,7 +1602,7 @@ function openArtbookWizard(paths) {
     title: "Iris Artbook", subtitle: "",
     coverPath: null,                 // null = auto (meilleur score, côté serveur)
     theme: "editorial",
-    chapter_by: "category", wantEncarts: true, wantIndex: true,
+    chapter_by: "category", wantEncarts: true, wantIndex: true, wantMatter: true,
     signatureUnit: 8, useRectaFill: true, usePirate: true,
   };
   wizOverlay.hidden = false;
@@ -1655,7 +1655,8 @@ function wizStep2() {
     <label class="wiz-tog"><input type="checkbox" id="wizChap" ${s.chapter_by === "category" ? "checked" : ""}>
       <span><strong>Chapitres par catégorie</strong><small>regroupe et titre chaque catégorie ; sinon un seul flux continu</small></span></label>
     ${tog("wantEncarts", "Encarts texte auto", "un carton de texte au milieu des doubles pages, par chapitre fourni")}
-    ${tog("wantIndex", "Index de fin", "planche de vignettes numérotées en dernière page")}`;
+    ${tog("wantIndex", "Index de fin", "planche de vignettes numérotées en dernière page")}
+    ${tog("wantMatter", "Pages liminaires", "page de garde (faux-titre), dédicace, et quatrième de couverture")}`;
 }
 function wizStep3() {
   const s = wizState;
@@ -1677,7 +1678,7 @@ function wizStep4() {
       ${li("Couverture", s.coverPath ? "choisie" : "auto (meilleur score)")}
       ${li("Style", s.theme === "brutalist" ? "Brutaliste" : "Éditorial")}
       ${li("Structure", (s.chapter_by === "category" ? "chapitres par catégorie" : "flux continu")
-        + (s.wantEncarts ? " · encarts" : "") + (s.wantIndex ? " · index" : ""))}
+        + (s.wantEncarts ? " · encarts" : "") + (s.wantIndex ? " · index" : "") + (s.wantMatter ? " · liminaires" : ""))}
       ${li("Reliure", "multiple de " + s.signatureUnit
         + (s.useRectaFill ? " · Recta" : "") + (s.usePirate ? " · pirate" : ""))}
     </div>
@@ -1719,6 +1720,7 @@ wizNextBtn.addEventListener("click", async () => {
         chapter_by: s.chapter_by, theme: s.theme, cover_path: s.coverPath,
         signature_unit: s.signatureUnit, use_recta_fill: s.useRectaFill,
         use_pirate: s.usePirate, want_index: s.wantIndex, want_encarts: s.wantEncarts,
+        want_frontmatter: s.wantMatter, want_backcover: s.wantMatter,
       }),
     });
     if (!res.ok) { alert("Erreur : " + (await res.text())); return; }
@@ -1851,7 +1853,8 @@ function abPageCard(pg, idx) {
   card.className = "ab-page";
   const label = { cover: "Couverture", chapter: "Chapitre", text: "Texte", quote: "Citation",
                   insert: "Encart", full: "Pleine page", duo: "Duo", trio: "Trio", quad: "Grille 4",
-                  pano: "Panoramique", recta: "Recta", pirate: "Pirate" }[pg.tpl] || pg.tpl;
+                  pano: "Panoramique", recta: "Recta", pirate: "Pirate", index: "Index",
+                  garde: "Page de garde", dedicace: "Dédicace", backcover: "4e de couverture" }[pg.tpl] || pg.tpl;
 
   // en-tête + boutons page
   const head = document.createElement("div");
@@ -2018,6 +2021,23 @@ function abPageCard(pg, idx) {
       ["Message", "text", pg.text || "", true],
       ["Signature", "sign", pg.sign || "", false],
     ], idx));
+  } else if (pg.tpl === "garde") {
+    card.appendChild(abFields([
+      ["Titre", "title", pg.title || "", false],
+      ["Sous-titre", "subtitle", pg.subtitle || "", false],
+    ], idx));
+  } else if (pg.tpl === "dedicace") {
+    card.appendChild(abFields([["Dédicace", "text", pg.text || "", true]], idx));
+  } else if (pg.tpl === "backcover") {
+    card.appendChild(abFields([
+      ["Texte (4e de couverture)", "text", pg.text || "", true],
+      ["Pied de page", "footer", pg.footer || "", false],
+    ], idx));
+    if (pg.hero) {
+      const note = document.createElement("div"); note.className = "ab-hint";
+      note.textContent = "Fond : image de couverture estompée. « Changer la couverture » la met aussi à jour.";
+      card.appendChild(note);
+    }
   } else if (pg.tpl === "index") {
     const info = document.createElement("div"); info.className = "ab-fields";
     info.innerHTML = `<label>Index — planche de ${(pg.items || []).length} vignettes (auto)</label>`;
@@ -2075,6 +2095,9 @@ document.querySelectorAll("[data-ab-add]").forEach(btn => {
         : kind === "insert" ? { tpl: "insert", kicker: "ENCART", heading: "Titre de l'encart", body: "Texte de l'encart…", items: [] }
         : kind === "quote" ? { tpl: "quote", quote: "Une citation marquante.", attribution: "" }
         : kind === "fill" ? { tpl: "fill", color: "orange", text: "STATEMENT", sub: "" }
+        : kind === "garde" ? { tpl: "garde", title: abModel.title || "", subtitle: abModel.subtitle || "" }
+        : kind === "dedicace" ? { tpl: "dedicace", text: "Pour…" }
+        : kind === "backcover" ? { tpl: "backcover", hero: abModel.coverPath || abModel.pages[0]?.hero || null, text: "", footer: "" }
         : { tpl: "chapter", title: "Nouveau chapitre" };
     }
     abPush(); abModel.pages.push(page); abRenderEditor();
@@ -2141,7 +2164,11 @@ function abRenderTray() {
     b.innerHTML = `<img src="${abThumb(p)}" alt="">`;
     b.onclick = () => {
       abPush();
-      if (abTrayMode === "cover") { abModel.pages[0].hero = p; abModel.coverPath = p; abTrayMode = "add"; abTrayEl.hidden = true; }
+      if (abTrayMode === "cover") {
+        abModel.pages[0].hero = p; abModel.coverPath = p;
+        abModel.pages.forEach(pg => { if (pg.tpl === "backcover") pg.hero = p; }); // 4e de couv. suit
+        abTrayMode = "add"; abTrayEl.hidden = true;
+      }
       else abModel.pages.push({ tpl: "full", items: [p] });
       abRenderEditor();
     };

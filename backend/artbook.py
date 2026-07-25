@@ -252,9 +252,13 @@ def pad_to_signature(pages: list, unit: int, seed, use_recta=True, use_pirate=Tr
     if pad == 0:
         return pages
     fillers = _make_fillers(pad, seed, use_recta, use_pirate)
-    if pages and pages[-1].get("tpl") == "index":
-        return pages[:-1] + fillers + pages[-1:]
-    return pages + fillers
+    # insérer avant le bloc de fin (index + 4e de couverture)
+    ins = len(pages)
+    for i, pg in enumerate(pages):
+        if pg.get("tpl") in ("index", "backcover"):
+            ins = i
+            break
+    return pages[:ins] + fillers + pages[ins:]
 
 
 def repad_model(model: dict, unit: int) -> dict:
@@ -289,7 +293,8 @@ def _spec_for(it: dict) -> list:
 def compose_model(paths, title="Iris Artbook", subtitle="", chapter_by="category",
                   theme="editorial", cover_path=None, signature_unit=4,
                   use_recta_fill=True, use_pirate=True, want_index=True,
-                  want_encarts=True, seed=None) -> dict:
+                  want_encarts=True, want_frontmatter=True, want_backcover=True,
+                  seed=None) -> dict:
     meta = _meta_index()
     items = []
     for p in paths:
@@ -321,8 +326,12 @@ def compose_model(paths, title="Iris Artbook", subtitle="", chapter_by="category
     multi = chapter_by == "category" and len(chapters) > 1
     hero = cover_path if (cover_path and Path(cover_path).is_file()) else chapters[0][1][0]["path"]
 
-    pages = [{"tpl": "cover", "hero": hero, "title": title,
-              "subtitle": subtitle or datetime.now().strftime("%d %B %Y")}]
+    sub = subtitle or datetime.now().strftime("%d %B %Y")
+    pages = [{"tpl": "cover", "hero": hero, "title": title, "subtitle": sub}]
+    # Pages liminaires (page de garde + dédicace) juste après la couverture.
+    if want_frontmatter:
+        pages.append({"tpl": "garde", "title": title, "subtitle": sub})
+        pages.append({"tpl": "dedicace", "text": "Pour…"})
 
     # Brutaliste : là où l'éditorial met 2 photos (duo), on met photo + fiche
     # technique (photo-text) auto-générée → beaucoup de texte, look magazine.
@@ -384,6 +393,12 @@ def compose_model(paths, title="Iris Artbook", subtitle="", chapter_by="category
         if all_imgs:
             pages.append({"tpl": "index", "heading": "Index", "items": all_imgs})
 
+    # Quatrième de couverture (dernière page du livre).
+    if want_backcover:
+        pages.append({"tpl": "backcover", "hero": hero,
+                      "text": subtitle or f"{title} — un livre composé avec Iris.",
+                      "footer": datetime.now().strftime("%Y · Iris")})
+
     # Calage sur un multiple de N pages (reliure) via intercalaires canon.
     pages = pad_to_signature(pages, signature_unit, seed, use_recta_fill, use_pirate)
 
@@ -400,6 +415,8 @@ def compose_model(paths, title="Iris Artbook", subtitle="", chapter_by="category
         "usePirate": use_pirate,
         "wantIndex": want_index,
         "wantEncarts": want_encarts,
+        "wantFrontmatter": want_frontmatter,
+        "wantBackcover": want_backcover,
         "createdAt": datetime.now().isoformat(timespec="seconds"),
         "pages": pages,
     }
@@ -477,6 +494,25 @@ def _render_page(pg: dict, meta: dict) -> str:
         attr = f'<div class="q-attr">{_escape(pg["attribution"])}</div>' if pg.get("attribution") else ""
         return (f'<section class="page page-quote"><blockquote class="q-text">'
                 f'{_escape(pg.get("quote",""))}</blockquote>{attr}</section>')
+
+    # Page de garde (faux-titre) : titre + sous-titre, sobre, centré.
+    if tpl == "garde":
+        sub = f'<div class="gd-sub">{_escape(pg.get("subtitle",""))}</div>' if pg.get("subtitle") else ""
+        return (f'<section class="page page-garde"><div class="gd-kicker">ARTBOOK</div>'
+                f'<h1 class="gd-title">{_escape(pg.get("title",""))}</h1><div class="gd-rule"></div>{sub}</section>')
+
+    # Dédicace : texte court, centré, italique, beaucoup de blanc.
+    if tpl == "dedicace":
+        return (f'<section class="page page-dedicace"><div class="dd-text">'
+                f'{_nl2br(pg.get("text",""))}</div></section>')
+
+    # Quatrième de couverture : image de fond estompée + blurb + pied de page.
+    if tpl == "backcover":
+        bg = (f'<img class="bc-bg" src="{_data_uri(Path(pg["hero"]), HERO_MAX)}" alt="" /><div class="bc-scrim"></div>'
+              if pg.get("hero") else "")
+        foot = f'<div class="bc-foot">{_escape(pg.get("footer",""))}</div>' if pg.get("footer") else ""
+        return (f'<section class="page page-backcover">{bg}<div class="bc-inner">'
+                f'<div class="bc-blurb"><p>{_nl2br(pg.get("text",""))}</p></div>{foot}</div></section>')
 
     # RECTA — intercalaire de l'Ordre : devise percutante ou communiqué C.G.U.
     if tpl == "recta":
@@ -669,6 +705,20 @@ figure.fit-cover img{object-fit:cover;} figure.fit-contain img{object-fit:contai
 .pir-text{font-family:monospace;font-weight:700;font-size:24px;line-height:1.4;margin:0;max-width:150mm;position:relative;text-shadow:1.6px 0 rgba(255,0,60,.75),-1.6px 0 rgba(0,229,255,.75);}
 .pir-text::after{content:"";position:absolute;left:-4mm;top:38%;width:calc(100% + 8mm);height:5px;background:var(--pir);opacity:.55;mix-blend-mode:screen;}
 .pir-sign{margin-top:11mm;font-family:monospace;font-weight:700;font-size:16px;letter-spacing:.16em;color:var(--pir);text-shadow:1.6px 0 #ff003c,-1.6px 0 #00e5ff;}
+/* Pages liminaires & 4e de couverture */
+.page-garde{display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;padding:30mm;background:var(--paper);}
+.gd-kicker{font-size:11px;letter-spacing:.42em;color:var(--accent);font-weight:700;text-transform:uppercase;margin-bottom:12mm;}
+.gd-title{font-size:42px;font-weight:700;letter-spacing:-.02em;line-height:1.02;margin:0;max-width:160mm;}
+.gd-rule{width:26mm;height:2px;background:var(--ink);margin:10mm 0 0;}
+.gd-sub{margin-top:8mm;font-size:14px;letter-spacing:.05em;color:var(--muted);}
+.page-dedicace{display:flex;justify-content:center;align-items:center;text-align:center;padding:40mm;background:var(--paper);}
+.dd-text{font-size:17px;font-style:italic;line-height:1.7;color:#33312c;max-width:120mm;}
+.page-backcover{position:relative;display:flex;flex-direction:column;justify-content:flex-end;padding:24mm;background:#111;color:#fff;overflow:hidden;}
+.bc-bg{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;filter:saturate(.85) contrast(1.02) brightness(.5);}
+.bc-scrim{position:absolute;inset:0;background:linear-gradient(180deg,rgba(0,0,0,.55),rgba(0,0,0,.78));}
+.bc-inner{position:relative;}
+.bc-blurb{font-size:16px;line-height:1.7;max-width:140mm;} .bc-blurb p{margin:0 0 4mm;}
+.bc-foot{margin-top:12mm;font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:rgba(255,255,255,.7);}
 """
 
 
@@ -813,6 +863,20 @@ figure.fit-contain img{object-fit:contain;background:#e6e2da;}
 .pir-text{font-family:'IBM Plex Mono',monospace;font-weight:700;font-size:25px;line-height:1.36;margin:0;max-width:158mm;position:relative;text-transform:uppercase;text-shadow:2px 0 rgba(255,0,60,.8),-2px 0 rgba(0,229,255,.8);}
 .pir-text::after{content:"";position:absolute;left:-5mm;top:44%;width:calc(100% + 10mm);height:6px;background:var(--pir);opacity:.6;mix-blend-mode:screen;}
 .pir-sign{font-family:'IBM Plex Mono',monospace;margin-top:11mm;font-weight:700;font-size:17px;letter-spacing:.16em;color:var(--pir);text-transform:uppercase;text-shadow:2px 0 #ff003c,-2px 0 #00e5ff;}
+/* Pages liminaires & 4e de couverture */
+.page-garde{display:flex;flex-direction:column;justify-content:center;align-items:flex-start;padding:26mm;background:var(--paper);}
+.gd-kicker{font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.3em;color:var(--accent);font-weight:600;text-transform:uppercase;margin-bottom:10mm;}
+.gd-title{font-size:52px;font-weight:700;text-transform:uppercase;letter-spacing:-.03em;line-height:.98;margin:0;}
+.gd-rule{width:100%;height:3px;background:var(--line);margin:8mm 0 0;}
+.gd-sub{font-family:'IBM Plex Mono',monospace;margin-top:6mm;font-size:12px;letter-spacing:.1em;color:var(--muted);text-transform:uppercase;}
+.page-dedicace{display:flex;justify-content:center;align-items:center;padding:40mm;background:var(--paper);}
+.dd-text{font-family:'IBM Plex Mono',monospace;font-size:15px;line-height:1.8;color:#141414;max-width:120mm;text-align:center;}
+.page-backcover{position:relative;display:flex;flex-direction:column;justify-content:flex-end;padding:22mm;background:#0e0e0e;color:#fff;overflow:hidden;}
+.bc-bg{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;filter:grayscale(1) contrast(1.1) brightness(.45);}
+.bc-scrim{position:absolute;inset:0;background:linear-gradient(180deg,rgba(0,0,0,.5),rgba(0,0,0,.82));}
+.bc-inner{position:relative;border-left:4px solid var(--accent);padding-left:8mm;}
+.bc-blurb{font-size:16px;line-height:1.62;max-width:140mm;} .bc-blurb p{margin:0 0 4mm;}
+.bc-foot{font-family:'IBM Plex Mono',monospace;margin-top:10mm;font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:var(--accent);}
 """
 
 THEMES = {"editorial": CSS_EDITORIAL, "brutalist": CSS_BRUTALIST}
