@@ -1625,13 +1625,13 @@ function abPageCard(pg, idx) {
   }
   card.appendChild(head);
 
-  if (IMG_TPLS.includes(pg.tpl)) {
-    // sélecteur de gabarit
+  if (IMG_TPLS.includes(pg.tpl) || pg.tpl === "pano") {
+    // sélecteur de gabarit (pano = image étalée sur 2 pages)
     const tpls = document.createElement("div"); tpls.className = "ab-tpls";
-    IMG_TPLS.forEach(t => {
+    ["full", "duo", "trio", "quad", "pano"].forEach(t => {
       const b = document.createElement("button");
       b.className = "ab-tpl" + (t === pg.tpl ? " active" : "");
-      b.textContent = { full: "Pleine", duo: "Duo", trio: "Trio", quad: "Grille 4" }[t];
+      b.textContent = { full: "Pleine", duo: "Duo", trio: "Trio", quad: "Grille 4", pano: "Pano ↔" }[t];
       b.onclick = () => abSetTemplate(idx, t);
       tpls.appendChild(b);
     });
@@ -1676,6 +1676,24 @@ function abPageCard(pg, idx) {
       ["Citation", "quote", pg.quote || "", true],
       ["Attribution", "attribution", pg.attribution || "", false],
     ], idx));
+  } else if (pg.tpl === "fill") {
+    const box = document.createElement("div"); box.className = "ab-fields";
+    const lbl = document.createElement("label"); lbl.textContent = "Fond";
+    const sel = document.createElement("select");
+    [["orange", "Orange"], ["black", "Noir"], ["paper", "Papier"]].forEach(([v, t]) => {
+      const o = document.createElement("option"); o.value = v; o.textContent = t; if (pg.color === v) o.selected = true; sel.appendChild(o);
+    });
+    sel.onchange = () => { abModel.pages[idx].color = sel.value; abRenderEditor(); };
+    box.append(lbl, sel);
+    card.appendChild(box);
+    card.appendChild(abFields([
+      ["Texte", "text", pg.text || "", false],
+      ["Sous-texte", "sub", pg.sub || "", false],
+    ], idx));
+  } else if (pg.tpl === "index") {
+    const info = document.createElement("div"); info.className = "ab-fields";
+    info.innerHTML = `<label>Index — planche de ${(pg.items || []).length} vignettes (auto)</label>`;
+    card.appendChild(info);
   }
   return card;
 }
@@ -1696,7 +1714,13 @@ function abFields(defs, idx) {
 function abMovePage(idx, d) { const j = idx + d; if (j < 1 || j >= abModel.pages.length) return;
   [abModel.pages[idx], abModel.pages[j]] = [abModel.pages[j], abModel.pages[idx]]; abRenderEditor(); }
 function abDeletePage(idx) { abModel.pages.splice(idx, 1); abRenderEditor(); }
-function abSetTemplate(idx, t) { abModel.pages[idx].tpl = t; abRenderEditor(); }
+function abSetTemplate(idx, t) {
+  const pg = abModel.pages[idx];
+  pg.tpl = t;
+  // full/pano ne prennent qu'une photo — on rogne les surplus.
+  if ((t === "full" || t === "pano") && pg.items && pg.items.length > 1) pg.items = pg.items.slice(0, 1);
+  abRenderEditor();
+}
 function abToggleFit(idx, path) { const pg = abModel.pages[idx]; pg.fits = pg.fits || {};
   pg.fits[path] = (pg.fits[path] === "contain") ? "cover" : "contain"; abRenderEditor(); }
 function abMovePhoto(idx, si, d) { const it = abModel.pages[idx].items; const j = si + d;
@@ -1710,6 +1734,7 @@ document.querySelectorAll("[data-ab-add]").forEach(btn => {
     const kind = btn.dataset.abAdd;
     const page = kind === "text" ? { tpl: "text", kicker: "", heading: "Titre", body: "Votre texte…" }
       : kind === "quote" ? { tpl: "quote", quote: "Une citation marquante.", attribution: "" }
+      : kind === "fill" ? { tpl: "fill", color: "orange", text: "STATEMENT", sub: "" }
       : { tpl: "chapter", title: "Nouveau chapitre" };
     abModel.pages.push(page); abRenderEditor();
     abPagesEl.lastElementChild?.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -1729,7 +1754,24 @@ document.getElementById("abRegen").addEventListener("click", async () => {
     const data = await res.json();
     window.open(data.url, "_blank");
   } finally {
-    btn.disabled = false; btn.textContent = "Régénérer l'aperçu ▸";
+    btn.disabled = false; btn.textContent = "Aperçu ▸";
+  }
+});
+
+// export PDF (chromium headless côté serveur)
+document.getElementById("abPdf").addEventListener("click", async () => {
+  const btn = document.getElementById("abPdf");
+  btn.disabled = true; btn.textContent = "PDF en cours…";
+  try {
+    const res = await fetch(`/api/artbook/${abId}/pdf`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model: abModel }),
+    });
+    if (!res.ok) { alert("Erreur : " + (await res.text())); return; }
+    const data = await res.json();
+    window.open(data.url, "_blank");
+  } finally {
+    btn.disabled = false; btn.textContent = "Export PDF ⤓";
   }
 });
 

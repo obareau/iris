@@ -187,6 +187,14 @@ def compose_model(paths, title="Iris Artbook", subtitle="", chapter_by="category
             pages.append({"tpl": tpl, "items": paths_c[i:i + need]})
             i += need
 
+    # Index de fin : toutes les images du livre en planche numérotée.
+    all_imgs = []
+    for pg in pages:
+        if pg.get("tpl") in IMAGE_TPLS or pg.get("tpl") in ("photo-text", "pano"):
+            all_imgs.extend(pg.get("items", []))
+    if all_imgs:
+        pages.append({"tpl": "index", "heading": "Index", "items": all_imgs})
+
     return {
         "id": uuid.uuid4().hex[:12],
         "title": title,
@@ -267,6 +275,29 @@ def _render_page(pg: dict, meta: dict) -> str:
         return (f'<section class="page page-quote"><blockquote class="q-text">'
                 f'{_escape(pg.get("quote",""))}</blockquote>{attr}</section>')
 
+    # Page pleine couleur (ponctuation) : orange / noir / papier, texte optionnel.
+    if tpl == "fill":
+        color = pg.get("color", "orange")
+        big = f'<div class="fill-big">{_escape(pg.get("text",""))}</div>' if pg.get("text") else ""
+        sub = f'<div class="fill-sub">{_escape(pg.get("sub",""))}</div>' if pg.get("sub") else ""
+        return f'<section class="page page-fill fill-{color}">{big}{sub}</section>'
+
+    # Panoramique : UNE image étalée sur DEUX pages (moitié gauche / moitié droite).
+    if tpl == "pano":
+        src = _data_uri(Path(pg["items"][0]), HERO_MAX)
+        left = f'<section class="page page-pano"><div class="pano-half pano-l" style="background-image:url({src})"></div></section>'
+        right = f'<section class="page page-pano"><div class="pano-half pano-r" style="background-image:url({src})"></div></section>'
+        return left + right
+
+    # Index de fin : planche de vignettes numérotées (FIG.).
+    if tpl == "index":
+        cells = []
+        for n, p in enumerate(pg.get("items", []), 1):
+            cells.append(f'<div class="ix-cell"><img src="{_data_uri(Path(p), 420)}" alt="" />'
+                         f'<div class="ix-n">{n:02d}</div></div>')
+        head = f'<div class="ix-head">{_escape(pg.get("heading","Index"))}</div>'
+        return f'<section class="page page-index">{head}<div class="ix-grid">{"".join(cells)}</div></section>'
+
     # Photo + bloc texte (une photo, une colonne de texte) — cœur du look
     # brutaliste : là où l'éditorial mettrait 2 photos, on met photo + texte.
     if tpl == "photo-text":
@@ -344,6 +375,17 @@ figure.fit-cover img{object-fit:cover;} figure.fit-contain img{object-fit:contai
 .pt-body{font-size:13.5px;line-height:1.66;color:#33312c;} .pt-body p{margin:0 0 4mm;}
 .pt-spec{display:grid;grid-template-columns:auto 1fr;gap:2mm 6mm;margin-top:8mm;font-size:11px;}
 .pt-k{color:var(--muted);text-transform:uppercase;letter-spacing:.08em;} .pt-v{color:var(--ink);}
+/* Page pleine / panoramique / index (éditorial) */
+.page-fill{display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;padding:26mm;}
+.fill-paper{background:var(--paper);} .fill-orange{background:var(--accent);color:#fff;} .fill-black{background:#141414;color:var(--paper);}
+.fill-big{font-size:40px;font-weight:600;line-height:1.1;max-width:150mm;}
+.fill-sub{margin-top:8mm;font-size:13px;letter-spacing:.1em;opacity:.85;}
+.page-pano{padding:0;} .pano-half{width:100%;height:100%;background-size:200% 100%;background-repeat:no-repeat;}
+.pano-l{background-position:left center;} .pano-r{background-position:right center;}
+.page-index{padding:16mm;} .ix-head{font-size:14px;letter-spacing:.28em;text-transform:uppercase;color:var(--muted);margin-bottom:8mm;}
+.ix-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:4mm;}
+.ix-cell{position:relative;aspect-ratio:1;overflow:hidden;} .ix-cell img{width:100%;height:100%;object-fit:cover;}
+.ix-n{position:absolute;left:0;bottom:0;font-size:9px;padding:1mm 2mm;background:#fff;color:var(--ink);}
 """
 
 
@@ -430,6 +472,18 @@ figure.fit-contain img{object-fit:contain;background:#e6e2da;}
 .pt-body{font-size:13px;line-height:1.62;} .pt-body p{margin:0 0 4mm;}
 .pt-spec{display:grid;grid-template-columns:auto 1fr;gap:2.4mm 6mm;margin-top:8mm;font-family:'IBM Plex Mono',monospace;font-size:11px;border-top:1.5px solid var(--line);padding-top:6mm;}
 .pt-k{color:var(--muted);text-transform:uppercase;letter-spacing:.06em;} .pt-v{color:var(--ink);font-weight:600;}
+/* Page pleine / panoramique / index (brutaliste) */
+.page-fill{display:flex;flex-direction:column;justify-content:center;align-items:flex-start;padding:22mm;}
+.fill-paper{background:var(--paper);} .fill-orange{background:var(--accent);color:#141414;} .fill-black{background:#0e0e0e;color:var(--paper);}
+.fill-big{font-size:54px;font-weight:700;line-height:.98;text-transform:uppercase;letter-spacing:-.02em;}
+.fill-orange .fill-big::after,.fill-black .fill-big::after,.fill-paper .fill-big::after{content:"";display:block;width:36mm;height:4px;background:currentColor;margin-top:6mm;opacity:.9;}
+.fill-sub{font-family:'IBM Plex Mono',monospace;margin-top:8mm;font-size:12px;letter-spacing:.14em;text-transform:uppercase;opacity:.9;}
+.page-pano{padding:0;} .pano-half{width:100%;height:100%;background-size:200% 100%;background-repeat:no-repeat;filter:grayscale(1) contrast(1.06);}
+.pano-l{background-position:left center;} .pano-r{background-position:right center;}
+.page-index{padding:14mm;} .ix-head{font-family:'IBM Plex Mono',monospace;font-size:13px;letter-spacing:.2em;text-transform:uppercase;color:var(--accent);font-weight:600;margin-bottom:7mm;border-bottom:2px solid var(--line);padding-bottom:4mm;}
+.ix-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:3mm;}
+.ix-cell{position:relative;aspect-ratio:1;overflow:hidden;} .ix-cell img{width:100%;height:100%;object-fit:cover;filter:grayscale(1) contrast(1.05);}
+.ix-n{position:absolute;left:0;bottom:0;font-family:'IBM Plex Mono',monospace;font-size:9px;padding:0 2mm;background:var(--accent);color:#141414;}
 """
 
 THEMES = {"editorial": CSS_EDITORIAL, "brutalist": CSS_BRUTALIST}
@@ -451,6 +505,29 @@ def render_model(model: dict) -> tuple[Path, dict]:
     out.write_text(html, encoding="utf-8")
     n_photos = sum(len(p.get("items", [])) for p in pages if p.get("tpl") in IMAGE_TPLS or p.get("tpl") == "photo-text")
     return out, {"pages": len(pages), "photos": n_photos}
+
+
+import shutil
+import subprocess
+
+
+def render_pdf(model: dict) -> Path:
+    """Rend le modèle en HTML puis en PDF via chromium headless (respecte @page)."""
+    html_path, _ = render_model(model)
+    pdf_path = html_path.with_suffix(".pdf")
+    chrome = shutil.which("google-chrome") or shutil.which("google-chrome-stable") \
+        or shutil.which("chromium") or shutil.which("chromium-browser")
+    if not chrome:
+        raise RuntimeError("Aucun chromium/chrome trouvé pour l'export PDF")
+    subprocess.run(
+        [chrome, "--headless=new", "--disable-gpu", "--no-sandbox",
+         f"--print-to-pdf={pdf_path}", "--no-pdf-header-footer",
+         "--print-to-pdf-no-header", f"file://{html_path}"],
+        check=True, capture_output=True, timeout=180,
+    )
+    if not pdf_path.is_file():
+        raise RuntimeError("chromium n'a pas produit de PDF")
+    return pdf_path
 
 
 # Compat : génère + rend en une passe (ancien point d'entrée).
