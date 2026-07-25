@@ -1010,7 +1010,8 @@ function galMakeCard(item) {
   checkbox.addEventListener("click", (e) => {
     e.preventDefault();       // on pilote l'état coché via galSyncSelection
     e.stopPropagation();
-    galSelectClick(item.path, e);
+    // la case coche = additif (comme ctrl) ; maj+case = plage
+    galSelectClick(item.path, { ctrlKey: true, shiftKey: e.shiftKey });
   });
   imgWrap.appendChild(checkbox);
 
@@ -1049,9 +1050,9 @@ function galMakeCard(item) {
   }
 
   card.addEventListener("click", (e) => {
-    // ctrl/cmd ou maj + clic n'importe où sur la carte = sélection (pas inspecteur)
-    if (e.shiftKey || e.ctrlKey || e.metaKey) { e.preventDefault(); galSelectClick(item.path, e); }
-    else galSelectImage(item.path);
+    galSelectClick(item.path, e);   // toujours : clic=1, ctrl=toggle, maj=plage
+    // clic simple : ouvre aussi l'inspecteur (aperçu), comme un explorateur
+    if (!e.shiftKey && !e.ctrlKey && !e.metaKey) galSelectImage(item.path);
   });
   card.addEventListener("dblclick", () => openLightbox(item.path));
   return card;
@@ -1503,14 +1504,18 @@ function galSelectClick(path, e) {
   const paths = galVisiblePaths();
   const idx = paths.indexOf(path);
   if (e.shiftKey && galSelAnchor && paths.includes(galSelAnchor)) {
-    // plage depuis l'ancre (ajout, ne désélectionne pas le reste)
+    // maj+clic : la plage ancre→cible REMPLACE la sélection (comme un explorateur)
     const a = paths.indexOf(galSelAnchor);
     const [lo, hi] = a <= idx ? [a, idx] : [idx, a];
-    for (let i = lo; i <= hi; i++) galSelectedPaths.add(paths[i]);
-  } else {
-    // clic simple ou ctrl/cmd+clic : bascule cette vignette, déplace l'ancre
+    galSelectedPaths = new Set(paths.slice(lo, hi + 1));
+  } else if (e.ctrlKey || e.metaKey) {
+    // ctrl/cmd+clic : bascule cette vignette, garde le reste, déplace l'ancre
     if (galSelectedPaths.has(path)) galSelectedPaths.delete(path);
     else galSelectedPaths.add(path);
+    galSelAnchor = path;
+  } else {
+    // clic simple : sélectionne UNIQUEMENT celle-ci (remplace tout)
+    galSelectedPaths = new Set([path]);
     galSelAnchor = path;
   }
   galSyncSelection();
