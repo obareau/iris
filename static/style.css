@@ -180,15 +180,19 @@ textarea { resize: vertical; }
 /* ---------- Panneau central : grille ---------- */
 .grid-toolbar {
   flex: 0 0 auto;
-  height: 44px;
+  min-height: 44px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 16px;
+  gap: 12px;
+  flex-wrap: wrap;
+  row-gap: 8px;
+  padding: 8px 16px;
   border-bottom: 1px solid var(--border);
   background: var(--bg-1);
 }
-.gt-left, .gt-right { display: flex; align-items: center; gap: 12px; }
+.grid-toolbar .btn { white-space: nowrap; }
+.gt-left, .gt-right { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; row-gap: 8px; }
 .select-sm { width: auto; padding: 5px 8px; font-size: 12px; }
 .counts { color: var(--muted); font-size: 12px; }
 .gt-right input[type=range] { width: 130px; accent-color: var(--accent); }
