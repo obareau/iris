@@ -1857,6 +1857,7 @@ async function abLibDelete(m) {
 const abThemeBtn = document.getElementById("abTheme");
 function abUpdateThemeBtn() {
   abThemeBtn.textContent = "Thème : " + ((abModel?.theme === "brutalist") ? "Brutaliste" : "Éditorial");
+  abEditor.dataset.theme = abModel?.theme || "editorial";
 }
 abThemeBtn.addEventListener("click", () => {
   if (!abModel) return;
@@ -1907,14 +1908,27 @@ function abRenderEditor() {
   abModel.pages.forEach((pg, idx) => abPagesEl.appendChild(abPageCard(pg, idx)));
   abUpdateSig();
   if (!abTrayEl.hidden) abRenderTray();
+  abRenderSpreads();
   abSchedulePreview();
 }
 
 function abThumb(path) { return "/api/thumbnail?path=" + encodeURIComponent(path); }
 
+// Famille de page → couleur de tranche (la structure encode le contenu :
+// on lit le rythme du livre — photo / texte / Ordre / pirate — d'un coup d'œil).
+const AB_KIND = {
+  cover: "matter", garde: "matter", dedicace: "matter", backcover: "matter",
+  full: "photo", duo: "photo", trio: "photo", quad: "photo", pano: "photo",
+  insert: "photo", "photo-text": "photo",
+  text: "text", quote: "text", chapter: "text", fill: "text",
+  recta: "recta", pirate: "pirate", index: "index",
+};
+
 function abPageCard(pg, idx) {
   const card = document.createElement("div");
   card.className = "ab-page";
+  card.dataset.kind = AB_KIND[pg.tpl] || "text";
+  card.dataset.tpl = pg.tpl;
   const label = { cover: "Couverture", chapter: "Chapitre", text: "Texte", quote: "Citation",
                   insert: "Encart", full: "Pleine page", duo: "Duo", trio: "Trio", quad: "Grille 4",
                   pano: "Panoramique", recta: "Recta", pirate: "Pirate", index: "Index",
@@ -1958,8 +1972,9 @@ function abPageCard(pg, idx) {
       tpls.appendChild(b);
     });
     card.appendChild(tpls);
-    // slots photos
+    // slots photos — la grille reproduit le VRAI gabarit de la page (miniature)
     const slots = document.createElement("div"); slots.className = "ab-slots";
+    slots.dataset.tpl = pg.tpl;
     (pg.items || []).forEach((path, si) => {
       const fit = (pg.fits || {})[path] || "cover";
       const slot = document.createElement("div"); slot.className = "ab-slot";
@@ -2001,12 +2016,12 @@ function abPageCard(pg, idx) {
       slot.appendChild(cap);
       slots.appendChild(slot);
     });
-    // « + photo » : ajoute une image à CETTE page (le gabarit suit), jusqu'à 4
+    // « + photo » : hors de la miniature (qui doit rester fidèle à la page rendue)
     if (IMG_TPLS.includes(pg.tpl) && (pg.items || []).length < 4) {
       const add = document.createElement("button");
-      add.className = "ab-slot ab-slot-add"; add.title = "Ajouter une photo à cette page";
-      add.innerHTML = "＋<span>photo</span>"; add.onclick = () => abAddPhotoTo(idx);
-      slots.appendChild(add);
+      add.className = "ab-tpl ab-add-photo"; add.title = "Ajouter une photo à cette page";
+      add.textContent = "＋ photo"; add.onclick = () => abAddPhotoTo(idx);
+      tpls.appendChild(add);
     }
     card.appendChild(slots);
   } else if (pg.tpl === "cover") {
@@ -2192,8 +2207,27 @@ document.querySelectorAll("[data-ab-add]").forEach(btn => {
         : { tpl: "chapter", title: "Nouveau chapitre" };
     }
     abPush(); abModel.pages.push(page); abRenderEditor();
+    abAddMenu.hidden = true; abAddBtn.setAttribute("aria-expanded", "false");
     abPagesEl.lastElementChild?.scrollIntoView({ behavior: "smooth", block: "center" });
   });
+});
+
+// Menu « Ajouter » : un seul point d'entrée au lieu de dix boutons alignés
+const abAddBtn = document.getElementById("abAddBtn");
+const abAddMenu = document.getElementById("abAddMenu");
+abAddBtn.addEventListener("click", (e) => {
+  e.stopPropagation();
+  const open = abAddMenu.hidden;
+  abAddMenu.hidden = !open;
+  abAddBtn.setAttribute("aria-expanded", String(open));
+});
+document.addEventListener("click", (e) => {
+  if (!abAddMenu.hidden && !abAddMenu.contains(e.target) && e.target !== abAddBtn) {
+    abAddMenu.hidden = true; abAddBtn.setAttribute("aria-expanded", "false");
+  }
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && !abAddMenu.hidden) { abAddMenu.hidden = true; abAddBtn.setAttribute("aria-expanded", "false"); }
 });
 
 // ===== Undo, photothèque, reliure (édition « de A à Z ») =====
@@ -2255,6 +2289,93 @@ function abToggleTray(mode) {
     ? "Photothèque — clic pour définir la couverture" : "Photothèque — clic pour ajouter une page pleine";
   if (show) abRenderTray();
 }
+// ===== Chemin de fer : le livre en PLANCHES (pages en vis-à-vis) ===========
+// Un livre ne se juge pas page à page : la couverture est seule, puis les pages
+// vont par deux (2–3, 4–5…). Un gabarit `pano` occupe deux pages physiques —
+// il apparaît donc en deux moitiés, ce qui rend visible s'il tombe bien à cheval
+// sur la pliure ou s'il est cassé par un mauvais calage.
+const abSpreadsEl = document.getElementById("abSpreads");
+const abSpreadsStrip = document.getElementById("abSpreadsStrip");
+document.getElementById("abSpreadToggle").addEventListener("click", () => {
+  const show = abSpreadsEl.hidden;
+  abSpreadsEl.hidden = !show;
+  document.getElementById("abSpreadToggle").classList.toggle("on", show);
+  if (show) abRenderSpreads();
+});
+document.getElementById("abSpreadsClose").addEventListener("click", () => {
+  abSpreadsEl.hidden = true;
+  document.getElementById("abSpreadToggle").classList.remove("on");
+});
+
+function abPhysicalPages() {
+  const phys = [];
+  (abModel?.pages || []).forEach((pg, idx) => {
+    if (pg.tpl === "pano") { phys.push({ pg, idx, half: "l" }); phys.push({ pg, idx, half: "r" }); }
+    else phys.push({ pg, idx, half: null });
+  });
+  return phys;
+}
+
+function abMiniPage(entry, num) {
+  const { pg, idx, half } = entry;
+  const el = document.createElement("button");
+  el.className = "ab-sp-page";
+  el.dataset.kind = AB_KIND[pg.tpl] || "text";
+  el.title = `Page ${num} — ${pg.tpl}`;
+  const items = pg.items || [];
+  if (items.length && (IMG_TPLS.includes(pg.tpl) || pg.tpl === "pano" || pg.tpl === "insert" || pg.tpl === "photo-text")) {
+    const grid = document.createElement("div");
+    grid.className = "ab-sp-grid"; grid.dataset.tpl = half ? "full" : pg.tpl;
+    (half ? [items[0]] : items).slice(0, 4).forEach(p => {
+      const im = document.createElement("img"); im.src = abThumb(p); im.loading = "lazy";
+      if (half) im.className = "half-" + half;
+      grid.appendChild(im);
+    });
+    el.appendChild(grid);
+  } else if (pg.tpl === "cover" || pg.tpl === "backcover") {
+    if (pg.hero) { const im = document.createElement("img"); im.className = "ab-sp-full"; im.src = abThumb(pg.hero); el.appendChild(im); }
+    else el.classList.add("blank");
+  } else {
+    const g = document.createElement("span"); g.className = "ab-sp-glyph";
+    g.textContent = { recta: "«»", pirate: "⚡", garde: "◳", dedicace: "❦", text: "Aa",
+                      quote: "“”", chapter: "§", fill: "■", index: "▦" }[pg.tpl] || "·";
+    el.appendChild(g);
+  }
+  const n = document.createElement("span"); n.className = "ab-sp-num"; n.textContent = num;
+  el.appendChild(n);
+  el.onclick = () => {
+    const card = abPagesEl.children[idx];
+    if (!card) return;
+    card.scrollIntoView({ behavior: "smooth", block: "center" });
+    card.classList.add("ab-flash");
+    setTimeout(() => card.classList.remove("ab-flash"), 900);
+  };
+  return el;
+}
+
+function abRenderSpreads() {
+  if (abSpreadsEl.hidden || !abModel) return;
+  const phys = abPhysicalPages();
+  abSpreadsStrip.innerHTML = "";
+  // 1 = couverture seule (recto), puis les paires en vis-à-vis
+  const groups = [[phys[0]]];
+  for (let i = 1; i < phys.length; i += 2) groups.push(phys.slice(i, i + 2));
+  groups.forEach((grp, gi) => {
+    const sp = document.createElement("div");
+    sp.className = "ab-spread" + (gi === 0 ? " single" : "");
+    const first = phys.indexOf(grp[0]) + 1;
+    grp.forEach((e, k) => sp.appendChild(abMiniPage(e, first + k)));
+    const lab = document.createElement("div"); lab.className = "ab-sp-label";
+    lab.textContent = gi === 0 ? "couv." : grp.length > 1 ? `${first}–${first + 1}` : `${first}`;
+    const wrap = document.createElement("div"); wrap.className = "ab-spread-wrap";
+    wrap.append(sp, lab);
+    abSpreadsStrip.appendChild(wrap);
+  });
+  const odd = phys.length % 2 === 0 ? "" : " · dernière planche incomplète";
+  document.getElementById("abSpreadsInfo").textContent =
+    `${phys.length} pages physiques · ${groups.length - 1} planches${odd}`;
+}
+
 // Photothèque = TOUTE la bibliothèque (pas seulement la sélection d'origine),
 // chargée une fois et cherchable. La sélection d'origine remonte en tête.
 let abTrayPhotos = null, abTrayQuery = "";

@@ -559,39 +559,61 @@
 <div id="artbookEditor" class="ab-editor" hidden>
   <div class="ab-bar">
     <div class="ab-bar-left">
-      <strong id="abTitle">Artbook</strong>
-      <span class="ab-meta" id="abMeta"></span>
+      <button class="ab-ico" id="abClose" title="Fermer l'éditeur">←</button>
+      <span class="ab-rule"></span>
+      <div class="ab-id">
+        <strong id="abTitle">Artbook</strong>
+        <span class="ab-meta" id="abMeta"></span>
+      </div>
     </div>
-    <div class="ab-bar-right">
-      <button class="btn ghost" id="abUndo" title="Annuler la dernière action" disabled>↶</button>
-      <button class="btn ghost" id="abTheme" title="Basculer éditorial / brutaliste">Thème : —</button>
-      <button class="btn ghost" id="abTrayToggle" title="Ajouter des photos">🖼 Photothèque</button>
-      <span class="ab-sig">Pages
-        <input id="abTarget" type="number" min="0" step="4" title="Nombre de pages visé (0 = minimum)" />
-        Cahier
-        <select id="abSig"><option value="4">4</option><option value="8">8</option><option value="16">16</option></select>
-        <button class="btn ghost" id="abPad" title="Compléter avec des intercalaires canon">Ajuster</button>
+
+    <div class="ab-bar-mid">
+      <button class="ab-ico" id="abUndo" title="Annuler la dernière action" disabled>↶</button>
+      <span class="ab-rule"></span>
+      <div class="ab-menu-wrap">
+        <button class="ab-btn" id="abAddBtn" aria-haspopup="true" aria-expanded="false">Ajouter<span class="ab-caret">▾</span></button>
+        <div class="ab-menu" id="abAddMenu" hidden>
+          <div class="ab-menu-sec">Texte</div>
+          <button data-ab-add="text"><em>Aa</em>Page de texte</button>
+          <button data-ab-add="quote"><em>“”</em>Citation</button>
+          <button data-ab-add="insert"><em>▤</em>Encart sur photo</button>
+          <button data-ab-add="chapter"><em>§</em>Chapitre</button>
+          <button data-ab-add="fill"><em>■</em>Page pleine couleur</button>
+          <div class="ab-menu-sec">Liminaires</div>
+          <button data-ab-add="garde"><em>◳</em>Page de garde</button>
+          <button data-ab-add="dedicace"><em>❦</em>Dédicace</button>
+          <button data-ab-add="backcover"><em>◲</em>Quatrième de couverture</button>
+          <div class="ab-menu-sec">Canon Robotariis</div>
+          <button data-ab-add="recta" class="k-recta"><em>«»</em>Communiqué Recta</button>
+          <button data-ab-add="pirate" class="k-pirate"><em>⚡</em>Émission pirate</button>
+        </div>
+      </div>
+      <button class="ab-btn" id="abSpreadToggle" title="Chemin de fer — les pages en vis-à-vis">Planches</button>
+      <button class="ab-btn" id="abTrayToggle" title="Piocher dans la bibliothèque">Photothèque</button>
+      <span class="ab-rule"></span>
+      <button class="ab-btn ab-swatch" id="abTheme" title="Basculer éditorial / brutaliste">Thème : —</button>
+      <div class="ab-gauge" title="Pages visées · cahier de reliure">
+        <label>Pages<input id="abTarget" type="number" min="0" step="4" /></label>
+        <label>Cahier<select id="abSig"><option value="4">4</option><option value="8">8</option><option value="16">16</option></select></label>
         <span class="ab-sig-info" id="abSigInfo"></span>
-      </span>
-      <span class="ab-addgroup">
-        <button class="btn ghost" data-ab-add="text">+ Texte</button>
-        <button class="btn ghost" data-ab-add="insert">+ Encart</button>
-        <button class="btn ghost" data-ab-add="quote">+ Citation</button>
-        <button class="btn ghost" data-ab-add="chapter">+ Chapitre</button>
-        <button class="btn ghost" data-ab-add="fill">+ Page pleine</button>
-        <button class="btn ghost" data-ab-add="garde">+ Garde</button>
-        <button class="btn ghost" data-ab-add="dedicace">+ Dédicace</button>
-        <button class="btn ghost" data-ab-add="backcover">+ 4e couv.</button>
-        <button class="btn ghost" data-ab-add="recta">+ Recta</button>
-        <button class="btn ghost" data-ab-add="pirate">+ Pirate</button>
-      </span>
-      <button class="btn ghost" id="abPreviewToggle" title="Aperçu live à côté de l'éditeur">👁 Aperçu live</button>
-      <button class="btn primary" id="abRegen">Aperçu ▸</button>
-      <button class="btn ghost" id="abPdf">Export PDF ⤓</button>
-      <button class="btn ghost" id="abClose">Fermer</button>
+        <button id="abPad" title="Compléter avec des intercalaires canon">Ajuster</button>
+      </div>
+    </div>
+
+    <div class="ab-bar-right">
+      <button class="ab-btn" id="abPreviewToggle" title="Aperçu live à côté de l'éditeur">Aperçu live</button>
+      <button class="ab-btn" id="abRegen" title="Ouvrir le rendu dans un onglet">Rendu ▸</button>
+      <button class="ab-btn primary" id="abPdf">Export PDF</button>
     </div>
   </div>
-  <div class="ab-hint">Ajuste chaque page : gabarit, recadrage, ordre/ajout de photos (photothèque), légendes, intercalaires. « Cahier » cale le total sur un multiple de 4/8/16. Puis « Aperçu ».</div>
+  <div class="ab-spreads" id="abSpreads" hidden>
+    <div class="ab-spreads-head">
+      <span>Chemin de fer</span>
+      <span class="ab-spreads-legend" id="abSpreadsInfo"></span>
+      <button id="abSpreadsClose" title="Masquer">✕</button>
+    </div>
+    <div class="ab-spreads-strip" id="abSpreadsStrip"></div>
+  </div>
   <div class="ab-tray" id="abTray" hidden>
     <div class="ab-tray-head"><span id="abTrayTitle">Photothèque — clic pour ajouter une page pleine</span>
       <input id="abTraySearch" class="ab-tray-search" type="text" placeholder="🔎 rechercher une photo (nom, catégorie, attribut)…" />
