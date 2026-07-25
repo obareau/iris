@@ -863,3 +863,5 @@ textarea { resize: vertical; }
   gap: 2px; border: 2px dashed var(--border); border-radius: 8px; background: var(--bg-2); color: var(--muted); font-size: 22px; cursor: pointer; }
 .ab-slot-add span { font-size: 10px; letter-spacing: .05em; }
 .ab-slot-add:hover { border-color: var(--accent); color: var(--accent); background: var(--bg-1); }
+.ab-tray-search { flex: 1; max-width: 340px; margin: 0 12px; padding: 5px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-1); color: var(--text); font-size: 12px; }
+.ab-tray-loading { grid-column: 1 / -1; color: var(--muted); font-size: 12px; padding: 12px; text-align: center; }

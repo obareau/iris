@@ -2255,29 +2255,58 @@ function abToggleTray(mode) {
     ? "Photothèque — clic pour définir la couverture" : "Photothèque — clic pour ajouter une page pleine";
   if (show) abRenderTray();
 }
-function abRenderTray() {
-  const grid = document.getElementById("abTrayGrid"); grid.innerHTML = "";
-  (abModel.allPaths || []).forEach(p => {
+// Photothèque = TOUTE la bibliothèque (pas seulement la sélection d'origine),
+// chargée une fois et cherchable. La sélection d'origine remonte en tête.
+let abTrayPhotos = null, abTrayQuery = "";
+async function abEnsureTrayPhotos() {
+  if (abTrayPhotos) return abTrayPhotos;
+  try {
+    const d = await (await fetch("/api/gallery")).json();
+    abTrayPhotos = (d.items || []).map(i => ({
+      path: i.path,
+      txt: (i.path.split("/").pop() + " " + (i.category_label || "") + " "
+        + (i.character_name || "") + " " + (i.attributes || []).map(a => a.value).join(" ")).toLowerCase(),
+    }));
+  } catch (e) {
+    abTrayPhotos = (abModel.allPaths || []).map(p => ({ path: p, txt: p.toLowerCase() }));
+  }
+  const sel = new Set(abModel.allPaths || []);              // sélection d'origine en tête
+  abTrayPhotos.sort((a, b) => (sel.has(b.path) ? 1 : 0) - (sel.has(a.path) ? 1 : 0));
+  return abTrayPhotos;
+}
+function abTrayPick(p) {
+  abPush();
+  if (abTrayMode === "cover") {
+    abModel.pages[0].hero = p; abModel.coverPath = p;
+    abModel.pages.forEach(pg => { if (pg.tpl === "backcover") pg.hero = p; }); // 4e de couv. suit
+    abTrayMode = "add"; abTrayEl.hidden = true;
+  } else if (abTrayMode === "into" && abTrayIntoIdx != null) {
+    const pg = abModel.pages[abTrayIntoIdx];
+    if (pg && (pg.items || []).length < 4) { pg.items.push(p); abAutoTpl(pg); } // le gabarit suit
+    abTrayMode = "add"; abTrayIntoIdx = null; abTrayEl.hidden = true;
+  } else {
+    abModel.pages.push({ tpl: "full", items: [p] });
+  }
+  abRenderEditor();
+}
+async function abRenderTray() {
+  const grid = document.getElementById("abTrayGrid");
+  grid.innerHTML = '<div class="ab-tray-loading">Chargement de la bibliothèque…</div>';
+  const photos = await abEnsureTrayPhotos();
+  const q = abTrayQuery.trim().toLowerCase();
+  const list = (q ? photos.filter(p => p.txt.includes(q)) : photos).slice(0, 500);
+  grid.innerHTML = "";
+  if (!list.length) { grid.innerHTML = '<div class="ab-tray-loading">Aucune photo.</div>'; return; }
+  list.forEach(({ path: p }) => {
     const b = document.createElement("button"); b.className = "ab-tray-cell";
-    b.innerHTML = `<img src="${abThumb(p)}" alt="">`;
-    b.onclick = () => {
-      abPush();
-      if (abTrayMode === "cover") {
-        abModel.pages[0].hero = p; abModel.coverPath = p;
-        abModel.pages.forEach(pg => { if (pg.tpl === "backcover") pg.hero = p; }); // 4e de couv. suit
-        abTrayMode = "add"; abTrayEl.hidden = true;
-      }
-      else if (abTrayMode === "into" && abTrayIntoIdx != null) {
-        const pg = abModel.pages[abTrayIntoIdx];
-        if (pg && (pg.items || []).length < 4) { pg.items.push(p); abAutoTpl(pg); } // le gabarit suit
-        abTrayMode = "add"; abTrayIntoIdx = null; abTrayEl.hidden = true;
-      }
-      else abModel.pages.push({ tpl: "full", items: [p] });
-      abRenderEditor();
-    };
+    b.innerHTML = `<img src="${abThumb(p)}" alt="" loading="lazy">`;
+    b.onclick = () => abTrayPick(p);
     grid.appendChild(b);
   });
 }
+document.getElementById("abTraySearch").addEventListener("input", (e) => {
+  abTrayQuery = e.target.value; abRenderTray();
+});
 document.getElementById("abTrayToggle").addEventListener("click", () => abToggleTray("add"));
 document.getElementById("abTrayClose").addEventListener("click", () => { abTrayEl.hidden = true; });
 
