@@ -1739,6 +1739,40 @@ const abPagesEl = document.getElementById("abPages");
 const IMG_TPLS = ["full", "duo", "trio", "quad"];
 const SLOTS_N = { full: 1, duo: 2, trio: 3, quad: 4 };
 
+// --- Glisser-déposer : réordonner les pages (poignée) et les photos d'une page ---
+let abDragIdx = null, abSlotDrag = null;
+function abClearDrop() { abPagesEl.querySelectorAll(".ab-drop-before").forEach(c => c.classList.remove("ab-drop-before")); }
+function abDragAfter(y) {
+  for (const c of abPagesEl.querySelectorAll(".ab-page:not(.ab-dragging)")) {
+    const r = c.getBoundingClientRect();
+    if (y < r.top + r.height / 2) return c;
+  }
+  return null;
+}
+abPagesEl.addEventListener("dragover", (e) => {
+  if (abDragIdx == null) return;
+  e.preventDefault(); e.dataTransfer.dropEffect = "move";
+  abClearDrop();
+  const after = abDragAfter(e.clientY);
+  if (after && after.querySelector(".ab-grip")) after.classList.add("ab-drop-before"); // jamais avant la couverture
+});
+abPagesEl.addEventListener("drop", (e) => {
+  if (abDragIdx == null) return;
+  e.preventDefault();
+  const after = abDragAfter(e.clientY);
+  let to = after ? [...abPagesEl.children].indexOf(after) : abModel.pages.length;
+  const from = abDragIdx;
+  abClearDrop(); abDragIdx = null;
+  if (to > from) to--;              // le retrait décale les indices
+  to = Math.max(1, to);             // couverture (idx 0) reste en tête
+  if (to === from) return;
+  abPush();
+  const arr = abModel.pages;
+  const [pg] = arr.splice(from, 1);
+  arr.splice(Math.min(to, arr.length), 0, pg);
+  abRenderEditor();
+});
+
 function openArtbookEditor(model, id, url) {
   abModel = model; abId = id;
   abUndoStack = [];
@@ -1786,7 +1820,8 @@ function abPageCard(pg, idx) {
   // en-tête + boutons page
   const head = document.createElement("div");
   head.className = "ab-page-head";
-  head.innerHTML = `<span class="ab-page-num">P.${idx + 1}</span><span class="ab-page-type">${label}</span><span class="sp"></span>`;
+  const gripHtml = pg.tpl === "cover" ? "" : `<span class="ab-grip" title="Glisser pour réordonner">⠿</span>`;
+  head.innerHTML = `${gripHtml}<span class="ab-page-num">P.${idx + 1}</span><span class="ab-page-type">${label}</span><span class="sp"></span>`;
   const mkIcon = (txt, title, fn, danger) => {
     const b = document.createElement("button"); b.className = "ab-icon" + (danger ? " danger" : "");
     b.textContent = txt; b.title = title; b.onclick = fn; return b;
@@ -1796,6 +1831,16 @@ function abPageCard(pg, idx) {
     head.appendChild(mkIcon("↓", "Descendre", () => abMovePage(idx, +1)));
     head.appendChild(mkIcon("⧉", "Dupliquer la page", () => abDuplicatePage(idx)));
     head.appendChild(mkIcon("✕", "Supprimer la page", () => abDeletePage(idx), true));
+    // glisser-déposer : la poignée arme le drag, on le désarme à la fin
+    const grip = head.querySelector(".ab-grip");
+    grip.addEventListener("mousedown", () => { card.draggable = true; });
+    card.addEventListener("dragstart", (e) => {
+      abDragIdx = idx; card.classList.add("ab-dragging");
+      e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", String(idx));
+    });
+    card.addEventListener("dragend", () => {
+      card.classList.remove("ab-dragging"); card.draggable = false; abClearDrop(); abDragIdx = null;
+    });
   }
   card.appendChild(head);
 
@@ -1815,7 +1860,26 @@ function abPageCard(pg, idx) {
     (pg.items || []).forEach((path, si) => {
       const fit = (pg.fits || {})[path] || "cover";
       const slot = document.createElement("div"); slot.className = "ab-slot";
-      slot.innerHTML = `<img class="${fit === "contain" ? "contain" : ""}" src="${abThumb(path)}" alt="" />`;
+      slot.innerHTML = `<img class="${fit === "contain" ? "contain" : ""}" src="${abThumb(path)}" alt="" draggable="true" />`;
+      // glisser-déposer d'une photo pour la réordonner DANS la page
+      const simg = slot.querySelector("img");
+      simg.addEventListener("dragstart", (e) => {
+        e.stopPropagation(); abSlotDrag = { idx, si };
+        slot.classList.add("ab-dragging"); e.dataTransfer.effectAllowed = "move";
+      });
+      simg.addEventListener("dragend", () => { slot.classList.remove("ab-dragging"); abSlotDrag = null; });
+      slot.addEventListener("dragover", (e) => {
+        if (abSlotDrag && abSlotDrag.idx === idx) { e.preventDefault(); e.stopPropagation(); slot.classList.add("ab-drop-into"); }
+      });
+      slot.addEventListener("dragleave", () => slot.classList.remove("ab-drop-into"));
+      slot.addEventListener("drop", (e) => {
+        if (!abSlotDrag || abSlotDrag.idx !== idx || abSlotDrag.si === si) return;
+        e.preventDefault(); e.stopPropagation();
+        abPush();
+        const it = abModel.pages[idx].items;
+        const [m] = it.splice(abSlotDrag.si, 1); it.splice(si, 0, m);
+        abSlotDrag = null; abRenderEditor();
+      });
       const ctl = document.createElement("div"); ctl.className = "ab-slot-ctl";
       const fitBtn = document.createElement("button"); fitBtn.className = "fit";
       fitBtn.textContent = fit === "contain" ? "entier" : "remplir";
