@@ -1,18 +1,25 @@
+/* Iris juge des images : la surface doit être neutre et sombre, sinon l'œil
+   compare les photos à du blanc et fausse la lecture des tons. Même identité
+   que la table de montage de l'artbook — laiton pour l'action, mono pour les
+   données, Helvetica pour l'interface. */
 :root {
-  --bg-0: #f0f1f3;   /* fond grille */
-  --bg-1: #ffffff;   /* panneaux */
-  --bg-2: #f6f7f9;   /* éléments surélevés / inputs */
-  --bg-3: #eceef1;   /* hover */
-  --border: #d7dbe0;
-  --border-soft: #e6e8ec;
-  --text: #1e2229;
-  --muted: #5c626c;
-  --faint: #9096a0;
-  --accent: #3b6fd6;
-  --accent-dim: #a9c1ee;
-  --ok: #2e9e6b;
-  --warn: #d38b2c;
-  --err: #d0503f;
+  color-scheme: dark;      /* les widgets natifs (cases, scrollbars, dates) suivent */
+  --bg-0: #101118;   /* fond grille — le plus sombre, les photos ressortent */
+  --bg-1: #1a1c24;   /* panneaux */
+  --bg-2: #22252f;   /* éléments surélevés / boutons */
+  --bg-3: #2c303c;   /* hover */
+  --field: #0e0f15;  /* champs (en creux) */
+  --border: rgba(255,255,255,.11);
+  --border-soft: rgba(255,255,255,.06);
+  --text: #ecebe7;
+  --muted: #9aa0ad;
+  --faint: #6b7080;
+  --accent: #d8a94b;         /* laiton : dorure de tranche */
+  --accent-ink: #1a1408;     /* texte posé SUR le laiton */
+  --accent-dim: rgba(216,169,75,.38);
+  --ok: #4bbf87;
+  --warn: #e0a94b;
+  --err: #e0644f;
   --thumb: 200px;
 }
 
@@ -20,12 +27,15 @@
 html, body { height: 100%; }
 body {
   margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-family: 'Iris Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   background: var(--bg-0);
   color: var(--text);
   font-size: 13px;
   -webkit-font-smoothing: antialiased;
 }
+/* les données (compteurs, chemins, scores, libellés techniques) en mono */
+.counts, .status-line, .minibar-head, .pblock h3, .field, .thumb-cat,
+.thumb-attrs, .gp-head, .lib-sub, .source-badge { font-family: 'Iris Mono', ui-monospace, monospace; }
 
 .app { display: flex; flex-direction: column; height: 100vh; }
 
@@ -54,7 +64,7 @@ body {
   cursor: pointer;
 }
 .tab-btn:hover { background: var(--bg-3); color: var(--text); }
-.tab-btn.active { background: var(--accent); color: #fff; }
+.tab-btn.active { background: var(--accent); color: var(--accent-ink); font-weight: 700; }
 
 .global-progress { flex: 1; max-width: 640px; }
 .gp-head {
@@ -74,7 +84,7 @@ body {
 .gp-fill {
   height: 100%;
   width: 0;
-  background: linear-gradient(90deg, var(--accent), #7aa5f5);
+  background: linear-gradient(90deg, var(--accent), #f0d08a);
   border-radius: 4px;
   transition: width 0.3s ease;
 }
@@ -120,7 +130,7 @@ body {
 .field-check input { margin-top: 2px; }
 
 input, textarea, select {
-  background: var(--bg-2);
+  background: var(--field);
   border: 1px solid var(--border);
   border-radius: 6px;
   padding: 7px 9px;
@@ -152,8 +162,8 @@ textarea { resize: vertical; }
 }
 .btn:hover:not(:disabled) { background: var(--bg-3); }
 .btn:disabled { opacity: 0.4; cursor: default; }
-.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
-.btn.primary:hover:not(:disabled) { background: #6f9bf2; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 700; }
+.btn.primary:hover:not(:disabled) { background: #e8bd63; border-color: #e8bd63; }
 .btn.ghost { background: transparent; }
 .btn.full { width: 100%; margin-bottom: 8px; }
 .btn.full:last-of-type { margin-bottom: 0; }
@@ -237,7 +247,7 @@ textarea { resize: vertical; }
 .thumb-img {
   position: relative;
   aspect-ratio: 1 / 1;
-  background: #e4e6ea;
+  background: #0d0e13;
   overflow: hidden;
 }
 .thumb-img img {
@@ -328,7 +338,7 @@ textarea { resize: vertical; }
   padding: 2px 6px;
   transition: background 0.1s, color 0.1s;
 }
-.taxo-term:hover { background: var(--accent); color: #fff; }
+.taxo-term:hover { background: var(--accent); color: var(--accent-ink); }
 .taxo-term .taxo-count { font-size: 0.65em; color: var(--faint); margin-left: 3px; }
 .taxo-term:hover .taxo-count { color: rgba(255,255,255,0.75); }
 
@@ -381,7 +391,7 @@ textarea { resize: vertical; }
   width: 64px; height: 64px;
   border-radius: 6px;
   overflow: hidden;
-  background: #e4e6ea;
+  background: #0d0e13;
 }
 .recta-entry-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .recta-entry-body { flex: 1; min-width: 0; }
@@ -442,7 +452,7 @@ textarea { resize: vertical; }
 }
 .dedupe-thumb-img {
   aspect-ratio: 1 / 1;
-  background: #e4e6ea;
+  background: #0d0e13;
   overflow: hidden;
 }
 .dedupe-thumb-img img { width: 100%; height: 100%; object-fit: cover; display: block; }
@@ -466,7 +476,7 @@ textarea { resize: vertical; }
 .insp-preview {
   width: 100%;
   aspect-ratio: 4 / 3;
-  background: #e4e6ea;
+  background: #0d0e13;
   border-radius: 8px;
   overflow: hidden;
   display: flex; align-items: center; justify-content: center;
@@ -663,7 +673,7 @@ textarea { resize: vertical; }
 
 /* Scrollbars discrètes */
 ::-webkit-scrollbar { width: 10px; height: 10px; }
-::-webkit-scrollbar-thumb { background: #c4c8ce; border-radius: 5px; }
+::-webkit-scrollbar-thumb { background: #343846; border-radius: 5px; }
 ::-webkit-scrollbar-track { background: transparent; }
 
 @media (max-width: 1100px) {
@@ -1296,3 +1306,107 @@ textarea { resize: vertical; }
 }
 /* flash quand on saute à une page depuis le chemin de fer */
 .ab-editor .ab-page.ab-flash { border-color: var(--brass); background: #24262f; }
+
+/* ══ Polish global de l'app (tous les onglets) ═══════════════════════════ */
+/* Barre du haut : un vrai bandeau d'atelier, pas une bande neutre */
+.topbar {
+  background: linear-gradient(180deg, #20232c, #171921);
+  border-bottom: 1px solid var(--border);
+  gap: 22px;
+}
+.brand { font-weight: 700; letter-spacing: -.02em; font-size: 16px; }
+.tab-btn { font-size: 12.5px; padding: 6px 13px; border-radius: 7px; }
+.tab-btn:hover { background: var(--bg-3); color: var(--text); }
+.gp-head { font-family: 'Iris Mono', monospace; font-size: 10.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--faint); }
+.gp-head #gpLabel { color: var(--muted); }
+.gp-track { background: #0b0c11; height: 5px; }
+
+/* Champs : en creux, focus laiton, placeholder discret */
+input, textarea, select { border-color: var(--border); }
+input::placeholder, textarea::placeholder { color: #565c6b; }
+input:focus, textarea:focus, select:focus { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(216,169,75,.15); }
+/* selects : la flèche native est illisible en sombre → chevron dessiné */
+select {
+  appearance: none; -webkit-appearance: none;
+  background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%), linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+  background-position: calc(100% - 15px) center, calc(100% - 10px) center;
+  background-size: 5px 5px, 5px 5px; background-repeat: no-repeat;
+  padding-right: 28px;
+}
+select option { background: #1a1c24; color: var(--text); }
+textarea { resize: vertical; }
+textarea::-webkit-resizer { background: transparent; }
+input[type=checkbox] { accent-color: var(--accent); }
+input[type=range] { accent-color: var(--accent); }
+
+/* Panneaux et titres de bloc */
+.panel-left, .panel-right { background: var(--bg-1); }
+.pblock h3 { font-size: 10px; letter-spacing: .18em; color: var(--faint); }
+.pblock small { color: var(--faint); }
+.field { letter-spacing: .06em; font-size: 10px; text-transform: uppercase; color: var(--faint); }
+.field input, .field select, .field textarea { font-family: 'Iris Sans', sans-serif; font-size: 12.5px; text-transform: none; letter-spacing: 0; color: var(--text); margin-top: 5px; }
+.field-check { font-family: 'Iris Sans', sans-serif; text-transform: none; letter-spacing: 0; font-size: 12px; color: var(--text); }
+
+/* Boutons : plus discrets au repos, l'action principale en laiton */
+.btn { border-radius: 7px; font-size: 12.5px; }
+.btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.btn.ghost { border-color: var(--border); color: var(--muted); }
+.btn.ghost:hover:not(:disabled) { color: var(--text); border-color: var(--border); }
+
+/* Grille de vignettes : les photos posées sur du noir, pas sur du gris */
+.grid { background: var(--bg-0); }
+.thumb { background: var(--bg-1); border-radius: 8px; }
+.thumb:hover { border-color: var(--faint); }
+.thumb-img { background: #0d0e13; }
+.thumb-foot { padding: 7px 9px; }
+.thumb-cat { font-size: 10px; letter-spacing: .02em; }
+.thumb-attrs { font-size: 10px; color: var(--faint); }
+.grid-empty { color: var(--faint); }
+.counts { font-size: 10.5px; letter-spacing: .06em; }
+.status-line { font-size: 11px; }
+.minibar-head { font-size: 10px; letter-spacing: .1em; text-transform: uppercase; }
+.source-badge { font-size: 9px; }
+
+/* ── Derniers réglages sombre ────────────────────────────────────────────── */
+/* l'onglet cliqué ne doit pas rester "allumé" après le clic */
+.tab-btn:focus:not(:focus-visible) { background: transparent; }
+.tab-btn.active:focus:not(:focus-visible) { background: var(--accent); }
+.tab-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+/* case de sélection : discrète au repos, laiton une fois cochée */
+.thumb-select {
+  appearance: none; -webkit-appearance: none;
+  border: 1.5px solid rgba(255,255,255,.65); border-radius: 4px;
+  background: rgba(0,0,0,.45); filter: none; backdrop-filter: blur(2px);
+}
+.thumb-select:checked { background: var(--accent); border-color: var(--accent); }
+.thumb-select:checked::after {
+  content: "✓"; position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  color: var(--accent-ink); font-size: 12px; font-weight: 700;
+}
+.thumb.selected { box-shadow: 0 0 0 3px rgba(216,169,75,.25); }
+/* nuage de mots : le compteur reste lisible sur le laiton */
+.taxo-term:hover .taxo-count { color: rgba(26,20,8,.7); }
+/* modales (dossiers, lightbox) */
+.modal { background: rgba(8,9,12,.72); backdrop-filter: blur(3px); }
+.modal-box { background: #1a1c24; border: 1px solid var(--border); box-shadow: 0 30px 80px rgba(0,0,0,.6); }
+.modal-header h2 { letter-spacing: -.01em; }
+.lightbox-box img { box-shadow: 0 20px 70px rgba(0,0,0,.8); }
+.lightbox-close { color: var(--text); }
+/* fiches de doublons / timeline Recta : cohérence des surfaces */
+.dedupe-group, .recta-entry { background: var(--bg-1); }
+.recta-entry:hover, .recta-entry.selected { background: var(--bg-2); }
+.recta-entry-thumb { background: #0d0e13; }
+/* inspecteur : hiérarchie plus nette */
+.panel-right .pblock h3 { color: var(--faint); }
+
+/* La case + son libellé + son aide : le libellé est un nœud texte nu, donc on
+   sort la case du flux (flex l'écrasait, et input{width:100%} l'étirait). */
+.field-check {
+  display: block; position: relative; padding-left: 25px; line-height: 1.5;
+}
+.field-check input[type=checkbox] {
+  position: absolute; left: 0; top: 1px; width: 16px; height: 16px; margin: 0; flex: none;
+}
+.field-check small { display: block; margin-top: 3px; color: var(--faint); font-size: 11px; }
+/* poignée de redimensionnement du textarea (blanche par défaut en sombre) */
+textarea::-webkit-resizer { background: var(--field); border-right: 2px solid var(--faint); border-bottom: 2px solid var(--faint); }

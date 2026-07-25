@@ -2949,16 +2949,16 @@ function graphRender(data) {
           shape: "ellipse",
           "background-fit": "cover",
           "border-width": 2,
-          "border-color": "#d7dbe0",
+          "border-color": "#3a3f4d",
         },
       },
-      { selector: "node:selected", style: { "border-color": "#3b6fd6", "border-width": 4 } },
+      { selector: "node:selected", style: { "border-color": "#d8a94b", "border-width": 4 } },
       {
         selector: "edge",
         style: {
           width: "mapData(weight, 0.5, 1, 1, 4)",
           opacity: "mapData(weight, 0.5, 1, 0.1, 0.5)",
-          "line-color": "#9096a0",
+          "line-color": "#5a6070",
           "curve-style": "haystack",
         },
       },
@@ -2967,7 +2967,7 @@ function graphRender(data) {
       {
         selector: "edge[near = 1]",
         style: {
-          "line-color": "#d0503f",
+          "line-color": "#e0644f",
           width: "mapData(weight, 0.9, 1, 4, 7)",
           opacity: 0.9,
           "z-index": 10,
@@ -2975,7 +2975,7 @@ function graphRender(data) {
       },
       // Focus sur le voisinage du nœud tapé — le reste s'estompe.
       { selector: ".dimmed", style: { opacity: 0.08 } },
-      { selector: "node.focused", style: { "border-color": "#d0503f", "border-width": 4 } },
+      { selector: "node.focused", style: { "border-color": "#e0644f", "border-width": 4 } },
     ],
     layout: { name: "cose", animate: false, nodeRepulsion: () => 8000, idealEdgeLength: () => 60 },
   });
