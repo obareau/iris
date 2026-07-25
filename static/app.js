@@ -1008,8 +1008,9 @@ function galMakeCard(item) {
   checkbox.type = "checkbox";
   checkbox.className = "thumb-select";
   checkbox.addEventListener("click", (e) => {
+    e.preventDefault();       // on pilote l'état coché via galSyncSelection
     e.stopPropagation();
-    galToggleSelect(item.path, checkbox.checked);
+    galSelectClick(item.path, e);
   });
   imgWrap.appendChild(checkbox);
 
@@ -1047,7 +1048,11 @@ function galMakeCard(item) {
     card.appendChild(attrsLine);
   }
 
-  card.addEventListener("click", () => galSelectImage(item.path));
+  card.addEventListener("click", (e) => {
+    // ctrl/cmd ou maj + clic n'importe où sur la carte = sélection (pas inspecteur)
+    if (e.shiftKey || e.ctrlKey || e.metaKey) { e.preventDefault(); galSelectClick(item.path, e); }
+    else galSelectImage(item.path);
+  });
   card.addEventListener("dblclick", () => openLightbox(item.path));
   return card;
 }
@@ -1474,14 +1479,47 @@ function galToggleSelect(path, checked) {
   galUpdateBulkBar();
 }
 
-function galClearSelection() {
-  for (const path of galSelectedPaths) {
-    const card = galCardByPath.get(path);
-    const cb = card?.querySelector(".thumb-select");
-    if (cb) cb.checked = false;
+// --- Sélection multiple façon explorateur (clic / ctrl+clic / maj+clic) ---
+let galSelAnchor = null;
+
+function galVisiblePaths() {
+  // ordre d'affichage = ordre de galItems, filtres respectés (display:none)
+  const out = [];
+  for (const item of galItems) {
+    const card = galCardByPath.get(item.path);
+    if (card && card.style.display !== "none") out.push(item.path);
   }
-  galSelectedPaths.clear();
+  return out;
+}
+function galSyncSelection() {
+  for (const [path, card] of galCardByPath) {
+    const cb = card.querySelector(".thumb-select");
+    if (cb) cb.checked = galSelectedPaths.has(path);
+    card.classList.toggle("selected", galSelectedPaths.has(path));
+  }
   galUpdateBulkBar();
+}
+function galSelectClick(path, e) {
+  const paths = galVisiblePaths();
+  const idx = paths.indexOf(path);
+  if (e.shiftKey && galSelAnchor && paths.includes(galSelAnchor)) {
+    // plage depuis l'ancre (ajout, ne désélectionne pas le reste)
+    const a = paths.indexOf(galSelAnchor);
+    const [lo, hi] = a <= idx ? [a, idx] : [idx, a];
+    for (let i = lo; i <= hi; i++) galSelectedPaths.add(paths[i]);
+  } else {
+    // clic simple ou ctrl/cmd+clic : bascule cette vignette, déplace l'ancre
+    if (galSelectedPaths.has(path)) galSelectedPaths.delete(path);
+    else galSelectedPaths.add(path);
+    galSelAnchor = path;
+  }
+  galSyncSelection();
+}
+
+function galClearSelection() {
+  galSelectedPaths.clear();
+  galSelAnchor = null;
+  galSyncSelection();
 }
 galBulkClearBtn.addEventListener("click", galClearSelection);
 
@@ -1489,10 +1527,9 @@ galSelectAllBtn.addEventListener("click", () => {
   for (const item of galItems) {
     const card = galCardByPath.get(item.path);
     if (card.style.display === "none") continue; // respecte le filtre affiché
-    const cb = card.querySelector(".thumb-select");
-    if (cb && !cb.checked) { cb.checked = true; galSelectedPaths.add(item.path); }
+    galSelectedPaths.add(item.path);
   }
-  galUpdateBulkBar();
+  galSyncSelection();
 });
 
 galBulkStars.querySelectorAll("span").forEach(s => {
