@@ -1797,7 +1797,42 @@ abThemeBtn.addEventListener("click", () => {
   abPush();
   abModel.theme = (abModel.theme === "brutalist") ? "editorial" : "brutalist";
   abUpdateThemeBtn();
+  abSchedulePreview();
 });
+
+// ===== Aperçu live : iframe du vrai rendu serveur, rafraîchi en débounce =====
+let abPreviewTimer = null;
+const abPreviewEl = document.getElementById("abPreview");
+const abPreviewFrame = document.getElementById("abPreviewFrame");
+const abPreviewToggleBtn = document.getElementById("abPreviewToggle");
+function abTogglePreview() {
+  const show = abPreviewEl.hidden;
+  abPreviewEl.hidden = !show;
+  abPreviewToggleBtn.classList.toggle("on", show);
+  if (show) abRenderPreview();
+}
+abPreviewToggleBtn.addEventListener("click", abTogglePreview);
+function abSchedulePreview() {
+  if (abPreviewEl.hidden || !abModel) return;
+  document.getElementById("abPreviewStatus").textContent = "…";
+  clearTimeout(abPreviewTimer);
+  abPreviewTimer = setTimeout(abRenderPreview, 700);
+}
+async function abRenderPreview() {
+  if (abPreviewEl.hidden || !abModel) return;
+  const status = document.getElementById("abPreviewStatus");
+  status.textContent = "rendu…";
+  try {
+    const r = await fetch(`/api/artbook/${abId}/render`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model: abModel }),
+    });
+    if (!r.ok) { status.textContent = "erreur"; return; }
+    const d = await r.json();
+    abPreviewFrame.src = d.url + "?t=" + Date.now();  // cache-bust
+    status.textContent = "";
+  } catch (e) { status.textContent = "erreur"; }
+}
 
 function abRenderEditor() {
   const imgCount = abModel.pages.filter(p => IMG_TPLS.includes(p.tpl)).reduce((n, p) => n + (p.items?.length || 0), 0);
@@ -1806,6 +1841,7 @@ function abRenderEditor() {
   abModel.pages.forEach((pg, idx) => abPagesEl.appendChild(abPageCard(pg, idx)));
   abUpdateSig();
   if (!abTrayEl.hidden) abRenderTray();
+  abSchedulePreview();
 }
 
 function abThumb(path) { return "/api/thumbnail?path=" + encodeURIComponent(path); }
@@ -1894,7 +1930,7 @@ function abPageCard(pg, idx) {
       const cap = document.createElement("input"); cap.className = "ab-cap";
       cap.placeholder = "légende (vide = auto)";
       cap.value = (pg.caps && pg.caps[path]) || "";
-      cap.oninput = () => { pg.caps = pg.caps || {}; if (cap.value) pg.caps[path] = cap.value; else delete pg.caps[path]; };
+      cap.oninput = () => { pg.caps = pg.caps || {}; if (cap.value) pg.caps[path] = cap.value; else delete pg.caps[path]; abSchedulePreview(); };
       slot.appendChild(cap);
       slots.appendChild(slot);
     });
@@ -1996,7 +2032,7 @@ function abFields(defs, idx) {
     const l = document.createElement("label"); l.textContent = label;
     const el = document.createElement(multi ? "textarea" : "input");
     el.value = val;
-    el.oninput = () => { abModel.pages[idx][key] = el.value; };
+    el.oninput = () => { abModel.pages[idx][key] = el.value; abSchedulePreview(); };
     box.append(l, el);
   });
   return box;

@@ -579,6 +579,7 @@
         <button class="btn ghost" data-ab-add="recta">+ Recta</button>
         <button class="btn ghost" data-ab-add="pirate">+ Pirate</button>
       </span>
+      <button class="btn ghost" id="abPreviewToggle" title="Aperçu live à côté de l'éditeur">👁 Aperçu live</button>
       <button class="btn primary" id="abRegen">Aperçu ▸</button>
       <button class="btn ghost" id="abPdf">Export PDF ⤓</button>
       <button class="btn ghost" id="abClose">Fermer</button>
@@ -590,7 +591,14 @@
       <button class="btn ghost" id="abTrayClose">✕</button></div>
     <div class="ab-tray-grid" id="abTrayGrid"></div>
   </div>
-  <div class="ab-pages" id="abPages"></div>
+  <div class="ab-main">
+    <div class="ab-pages" id="abPages"></div>
+    <div class="ab-preview" id="abPreview" hidden>
+      <div class="ab-preview-head"><span>Aperçu live <span id="abPreviewStatus"></span></span>
+        <span class="ab-preview-hint">rendu identique au PDF</span></div>
+      <iframe id="abPreviewFrame" title="Aperçu live de l'artbook"></iframe>
+    </div>
+  </div>
 </div>
 
 <!-- Wizard de création d'artbook -->
