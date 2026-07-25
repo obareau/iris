@@ -841,3 +841,21 @@ textarea { resize: vertical; }
 .ab-preview iframe { flex: 1; width: 100%; border: 0; background: #fff; }
 #abPreviewToggle.on { background: var(--accent); border-color: var(--accent); color: #fff; }
 .ab-sig input[type=number] { width: 54px; padding: 3px 5px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-2); color: var(--text); }
+
+/* ===== Bibliothèque des artbooks ===== */
+.wiz.lib { width: min(1000px, 96vw); }
+.lib-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 16px; }
+.lib-empty { grid-column: 1 / -1; text-align: center; color: var(--muted); padding: 40px; }
+.lib-card { border: 1px solid var(--border); border-radius: 10px; overflow: hidden; background: var(--bg-1); cursor: pointer; transition: box-shadow .12s, border-color .12s; }
+.lib-card:hover { border-color: var(--accent-dim); box-shadow: 0 4px 14px rgba(0,0,0,.1); }
+.lib-cover { position: relative; aspect-ratio: 1; background: #111; }
+.lib-cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.lib-nocover { display: flex; align-items: center; justify-content: center; height: 100%; color: #888; letter-spacing: .3em; font-size: 12px; }
+.lib-theme { position: absolute; top: 6px; right: 6px; font-size: 10px; text-transform: uppercase; letter-spacing: .08em; background: rgba(0,0,0,.6); color: #fff; padding: 2px 6px; border-radius: 4px; }
+.lib-meta { padding: 10px 12px 6px; }
+.lib-title { font-size: 13px; font-weight: 700; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lib-sub { font-size: 11px; color: var(--muted); margin-top: 2px; }
+.lib-acts { display: flex; gap: 4px; padding: 6px 8px 10px; flex-wrap: wrap; }
+.lib-acts .btn { padding: 4px 8px; font-size: 11px; }
+.lib-acts .btn.danger { margin-left: auto; }
+.lib-acts .btn.danger:hover { border-color: var(--err); color: var(--err); }

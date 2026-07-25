@@ -212,6 +212,7 @@
         <small id="galLibSummary">—</small>
         <button id="galLoadBtn" class="btn primary full" style="margin-top:8px">Charger</button>
         <button type="button" class="btn ghost full" data-goto-tab="bibliotheque">Gérer les dossiers →</button>
+        <button type="button" id="galLibraryBtn" class="btn ghost full">📚 Mes artbooks</button>
       </section>
       <section class="pblock">
         <h3>Filtrer</h3>
@@ -603,6 +604,19 @@
         <span class="ab-preview-hint">rendu identique au PDF</span></div>
       <iframe id="abPreviewFrame" title="Aperçu live de l'artbook"></iframe>
     </div>
+  </div>
+</div>
+
+<!-- Bibliothèque des artbooks sauvegardés -->
+<div id="artbookLibrary" class="wiz-overlay" hidden>
+  <div class="wiz lib">
+    <div class="wiz-head">
+      <strong>Mes artbooks</strong>
+      <span class="wiz-hint" id="libCount"></span>
+      <span class="sp" style="flex:1"></span>
+      <button class="btn ghost" id="libClose" title="Fermer">✕</button>
+    </div>
+    <div class="wiz-body"><div class="lib-grid" id="libGrid"></div></div>
   </div>
 </div>
 

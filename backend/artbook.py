@@ -453,11 +453,45 @@ def list_models() -> list[dict]:
     for f in sorted(MODELS_DIR.glob("*.json"), key=lambda x: x.stat().st_mtime, reverse=True):
         try:
             m = json.loads(f.read_text(encoding="utf-8"))
+            cover = m.get("coverPath") or (m.get("pages", [{}])[0].get("hero"))
             out.append({"id": m.get("id"), "title": m.get("title"),
-                        "pages": len(m.get("pages", [])), "createdAt": m.get("createdAt")})
+                        "pages": len(m.get("pages", [])), "createdAt": m.get("createdAt"),
+                        "theme": m.get("theme", "editorial"), "cover": cover,
+                        "updatedAt": datetime.fromtimestamp(f.stat().st_mtime).isoformat(timespec="seconds")})
         except Exception:
             continue
     return out
+
+
+def delete_model(mid: str) -> bool:
+    f = MODELS_DIR / f"{mid}.json"
+    if f.is_file():
+        f.unlink()
+        return True
+    return False
+
+
+def duplicate_model(mid: str) -> dict | None:
+    m = load_model(mid)
+    if not m:
+        return None
+    m["id"] = uuid.uuid4().hex[:12]
+    m["title"] = (m.get("title") or "Artbook") + " (copie)"
+    m["createdAt"] = datetime.now().isoformat(timespec="seconds")
+    save_model(m)
+    return m
+
+
+def rename_model(mid: str, title: str) -> dict | None:
+    m = load_model(mid)
+    if not m:
+        return None
+    m["title"] = title
+    for pg in m.get("pages", []):        # la couverture et la garde portent le titre
+        if pg.get("tpl") in ("cover", "garde"):
+            pg["title"] = title
+    save_model(m)
+    return m
 
 
 # ---------------------------------------------------------------------------

@@ -1795,6 +1795,65 @@ function openArtbookEditor(model, id, url) {
 function abClose() { abEditor.hidden = true; abModel = null; abId = null; }
 document.getElementById("abClose").addEventListener("click", abClose);
 
+// ===== Bibliothèque des artbooks (rouvrir / renommer / dupliquer / supprimer) =====
+const abLibOverlay = document.getElementById("artbookLibrary");
+document.getElementById("galLibraryBtn").addEventListener("click", openArtbookLibrary);
+document.getElementById("libClose").addEventListener("click", () => { abLibOverlay.hidden = true; });
+async function openArtbookLibrary() {
+  abLibOverlay.hidden = false;
+  const grid = document.getElementById("libGrid");
+  grid.innerHTML = '<div class="lib-empty">Chargement…</div>';
+  let models = [];
+  try { models = (await (await fetch("/api/artbook")).json()).models || []; } catch (e) {}
+  document.getElementById("libCount").textContent = models.length ? `${models.length} livre${models.length > 1 ? "s" : ""}` : "";
+  if (!models.length) { grid.innerHTML = '<div class="lib-empty">Aucun artbook sauvegardé. Compose-en un depuis une sélection de photos.</div>'; return; }
+  grid.innerHTML = "";
+  models.forEach(m => grid.appendChild(abLibCard(m)));
+}
+function abLibCard(m) {
+  const card = document.createElement("div"); card.className = "lib-card";
+  const cover = m.cover ? `<img src="${abThumb(m.cover)}" alt="">` : `<div class="lib-nocover">ARTBOOK</div>`;
+  const date = (m.updatedAt || m.createdAt || "").slice(0, 10);
+  card.innerHTML = `<div class="lib-cover">${cover}<span class="lib-theme">${m.theme === "brutalist" ? "Brutaliste" : "Éditorial"}</span></div>
+    <div class="lib-meta"><div class="lib-title">${escapeAttr(m.title || "Sans titre")}</div>
+      <div class="lib-sub">${m.pages} pages · ${date}</div></div>`;
+  const acts = document.createElement("div"); acts.className = "lib-acts";
+  const mk = (txt, title, fn, danger) => {
+    const b = document.createElement("button"); b.className = "btn ghost" + (danger ? " danger" : "");
+    b.textContent = txt; b.title = title; b.onclick = (e) => { e.stopPropagation(); fn(); }; return b;
+  };
+  acts.append(
+    mk("Ouvrir", "Rouvrir dans l'éditeur", () => abLibOpen(m.id)),
+    mk("Renommer", "Renommer", () => abLibRename(m)),
+    mk("Dupliquer", "Dupliquer", () => abLibDuplicate(m.id)),
+    mk("✕", "Supprimer", () => abLibDelete(m), true),
+  );
+  card.appendChild(acts);
+  card.onclick = () => abLibOpen(m.id);
+  return card;
+}
+async function abLibOpen(id) {
+  try {
+    const d = await (await fetch("/api/artbook/" + id)).json();
+    abLibOverlay.hidden = true;
+    openArtbookEditor(d.model, id);
+  } catch (e) { alert("Ouverture impossible."); }
+}
+async function abLibRename(m) {
+  const t = prompt("Nouveau titre :", m.title || ""); if (t === null) return;
+  await fetch(`/api/artbook/${m.id}/rename`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: t }) });
+  openArtbookLibrary();
+}
+async function abLibDuplicate(id) {
+  await fetch(`/api/artbook/${id}/duplicate`, { method: "POST" });
+  openArtbookLibrary();
+}
+async function abLibDelete(m) {
+  if (!confirm(`Supprimer « ${m.title || "Sans titre"} » ? (irréversible)`)) return;
+  await fetch("/api/artbook/" + m.id, { method: "DELETE" });
+  openArtbookLibrary();
+}
+
 const abThemeBtn = document.getElementById("abTheme");
 function abUpdateThemeBtn() {
   abThemeBtn.textContent = "Thème : " + ((abModel?.theme === "brutalist") ? "Brutaliste" : "Éditorial");

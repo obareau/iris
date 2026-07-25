@@ -949,6 +949,33 @@ def artbook_get(mid: str):
     return {"model": model}
 
 
+@app.delete("/api/artbook/{mid}")
+def artbook_delete(mid: str):
+    if not artbook_module.delete_model(mid):
+        raise HTTPException(404, "Artbook introuvable")
+    return {"ok": True}
+
+
+@app.post("/api/artbook/{mid}/duplicate")
+def artbook_duplicate(mid: str):
+    m = artbook_module.duplicate_model(mid)
+    if not m:
+        raise HTTPException(404, "Artbook introuvable")
+    return {"id": m["id"], "model": m}
+
+
+class RenameRequest(BaseModel):
+    title: str
+
+
+@app.post("/api/artbook/{mid}/rename")
+def artbook_rename(mid: str, req: RenameRequest):
+    m = artbook_module.rename_model(mid, req.title.strip() or "Artbook")
+    if not m:
+        raise HTTPException(404, "Artbook introuvable")
+    return {"id": mid, "model": m}
+
+
 class ArtbookModel(BaseModel):
     model: dict
 
