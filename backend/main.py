@@ -913,6 +913,7 @@ class ArtbookRequest(BaseModel):
     want_encarts: bool = True
     want_frontmatter: bool = True
     want_backcover: bool = True
+    target_pages: int = 24
 
 
 @app.post("/api/artbook")
@@ -926,7 +927,8 @@ def artbook_build(req: ArtbookRequest):
             cover_path=req.cover_path, signature_unit=req.signature_unit,
             use_recta_fill=req.use_recta_fill, use_pirate=req.use_pirate,
             want_index=req.want_index, want_encarts=req.want_encarts,
-            want_frontmatter=req.want_frontmatter, want_backcover=req.want_backcover)
+            want_frontmatter=req.want_frontmatter, want_backcover=req.want_backcover,
+            target_pages=req.target_pages)
     except ValueError as e:
         raise HTTPException(400, str(e))
     artbook_module.save_model(model)

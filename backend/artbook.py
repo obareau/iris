@@ -242,14 +242,19 @@ def _make_fillers(n: int, seed, use_recta: bool, use_pirate: bool) -> list:
     return fillers
 
 
-def pad_to_signature(pages: list, unit: int, seed, use_recta=True, use_pirate=True) -> list:
-    """Cale le nombre total de pages sur un multiple de `unit` (4/8/16) en
-    insérant des intercalaires canon, juste avant l'index de fin s'il existe."""
+def pad_to_signature(pages: list, unit: int, seed, use_recta=True, use_pirate=True, target=0) -> list:
+    """Cale le nombre de pages : on vise `target` pages (plancher, ex. 24), et on
+    arrondit au multiple de `unit` (4/8/16). Si le contenu dépasse `target`, on
+    monte au multiple suivant. Le complément = intercalaires canon, insérés juste
+    avant le bloc de fin (index + 4e de couverture)."""
     unit = unit if unit in (4, 8, 16) else 4
     if not (use_recta or use_pirate):
         return pages
-    pad = (-len(pages)) % unit
-    if pad == 0:
+    n = len(pages)
+    goal = max(n, target or 0)
+    goal += (-goal) % unit              # arrondi au multiple de unit
+    pad = goal - n
+    if pad <= 0:
         return pages
     fillers = _make_fillers(pad, seed, use_recta, use_pirate)
     # insérer avant le bloc de fin (index + 4e de couverture)
@@ -267,7 +272,8 @@ def repad_model(model: dict, unit: int) -> dict:
             if not (p.get("auto") and p.get("tpl") in ("recta", "pirate"))]
     model["pages"] = pad_to_signature(kept, unit, model.get("seed"),
                                       model.get("useRectaFill", True),
-                                      model.get("usePirate", True))
+                                      model.get("usePirate", True),
+                                      target=model.get("targetPages", 0))
     model["signatureUnit"] = unit if unit in (4, 8, 16) else 4
     return model
 
@@ -294,7 +300,7 @@ def compose_model(paths, title="Iris Artbook", subtitle="", chapter_by="category
                   theme="editorial", cover_path=None, signature_unit=4,
                   use_recta_fill=True, use_pirate=True, want_index=True,
                   want_encarts=True, want_frontmatter=True, want_backcover=True,
-                  seed=None) -> dict:
+                  target_pages=24, seed=None) -> dict:
     meta = _meta_index()
     items = []
     for p in paths:
@@ -399,8 +405,8 @@ def compose_model(paths, title="Iris Artbook", subtitle="", chapter_by="category
                       "text": subtitle or f"{title} — un livre composé avec Iris.",
                       "footer": datetime.now().strftime("%Y · Iris")})
 
-    # Calage sur un multiple de N pages (reliure) via intercalaires canon.
-    pages = pad_to_signature(pages, signature_unit, seed, use_recta_fill, use_pirate)
+    # Calage : vise target_pages (défaut 24), arrondi au cahier, via intercalaires.
+    pages = pad_to_signature(pages, signature_unit, seed, use_recta_fill, use_pirate, target=target_pages)
 
     return {
         "id": uuid.uuid4().hex[:12],
@@ -417,6 +423,7 @@ def compose_model(paths, title="Iris Artbook", subtitle="", chapter_by="category
         "wantEncarts": want_encarts,
         "wantFrontmatter": want_frontmatter,
         "wantBackcover": want_backcover,
+        "targetPages": target_pages,
         "createdAt": datetime.now().isoformat(timespec="seconds"),
         "pages": pages,
     }

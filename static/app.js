@@ -1603,7 +1603,7 @@ function openArtbookWizard(paths) {
     coverPath: null,                 // null = auto (meilleur score, côté serveur)
     theme: "editorial",
     chapter_by: "category", wantEncarts: true, wantIndex: true, wantMatter: true,
-    signatureUnit: 8, useRectaFill: true, usePirate: true,
+    signatureUnit: 8, targetPages: 24, useRectaFill: true, usePirate: true,
   };
   wizOverlay.hidden = false;
   wizRender();
@@ -1661,9 +1661,12 @@ function wizStep2() {
 function wizStep3() {
   const s = wizState;
   const unit = u => `<button type="button" class="wiz-unit ${s.signatureUnit === u ? "on" : ""}" data-unit="${u}">${u}</button>`;
+  const tgt = v => `<button type="button" class="wiz-unit ${s.targetPages === v ? "on" : ""}" data-target="${v}">${v || "min"}</button>`;
   const tog = (k, name, desc) => `<label class="wiz-tog"><input type="checkbox" data-tog="${k}" ${s[k] ? "checked" : ""}>
       <span><strong>${name}</strong><small>${desc}</small></span></label>`;
-  return `<div class="wiz-label">Cahier de reliure <small>— total calé sur un multiple de</small></div>
+  return `<div class="wiz-label">Nombre de pages visé <small>— plancher rempli d'intercalaires (arrondi au cahier)</small></div>
+    <div class="wiz-units">${tgt(24)}${tgt(32)}${tgt(48)}${tgt(0)}</div>
+    <div class="wiz-label">Cahier de reliure <small>— total calé sur un multiple de</small></div>
     <div class="wiz-units">${unit(4)}${unit(8)}${unit(16)}</div>
     <div class="wiz-label">Intercalaires de complément</div>
     ${tog("useRectaFill", "Citations Recta", "devises et communiqués C.G.U. (l'Ordre) pour compléter le cahier")}
@@ -1679,7 +1682,7 @@ function wizStep4() {
       ${li("Style", s.theme === "brutalist" ? "Brutaliste" : "Éditorial")}
       ${li("Structure", (s.chapter_by === "category" ? "chapitres par catégorie" : "flux continu")
         + (s.wantEncarts ? " · encarts" : "") + (s.wantIndex ? " · index" : "") + (s.wantMatter ? " · liminaires" : ""))}
-      ${li("Reliure", "multiple de " + s.signatureUnit
+      ${li("Reliure", (s.targetPages ? s.targetPages + " p. visées · " : "min · ") + "cahier " + s.signatureUnit
         + (s.useRectaFill ? " · Recta" : "") + (s.usePirate ? " · pirate" : ""))}
     </div>
     <div class="wiz-note">La curation (hero shots, gabarits, encarts) est automatique. Tout reste modifiable ensuite dans l'éditeur.</div>`;
@@ -1701,6 +1704,7 @@ const wizBind = {
     wizBody.querySelectorAll("[data-tog]").forEach(c => c.onchange = e => wizState[c.dataset.tog] = e.target.checked);
   },
   3() {
+    wizBody.querySelectorAll("[data-target]").forEach(b => b.onclick = () => { wizState.targetPages = +b.dataset.target; wizRender(); });
     wizBody.querySelectorAll("[data-unit]").forEach(b => b.onclick = () => { wizState.signatureUnit = +b.dataset.unit; wizRender(); });
     wizBody.querySelectorAll("[data-tog]").forEach(c => c.onchange = e => wizState[c.dataset.tog] = e.target.checked);
   },
@@ -1721,6 +1725,7 @@ wizNextBtn.addEventListener("click", async () => {
         signature_unit: s.signatureUnit, use_recta_fill: s.useRectaFill,
         use_pirate: s.usePirate, want_index: s.wantIndex, want_encarts: s.wantEncarts,
         want_frontmatter: s.wantMatter, want_backcover: s.wantMatter,
+        target_pages: s.targetPages,
       }),
     });
     if (!res.ok) { alert("Erreur : " + (await res.text())); return; }
@@ -2124,12 +2129,19 @@ document.getElementById("abUndo").addEventListener("click", abUndo);
 // indicateur de reliure : pages actuelles + complément pour le cahier choisi
 function abUpdateSig() {
   const unit = abModel.signatureUnit || 4;
+  const target = abModel.targetPages || 0;
   document.getElementById("abSig").value = String(unit);
-  const n = abModel.pages.length, pad = (unit - (n % unit)) % unit;
-  document.getElementById("abSigInfo").textContent = pad === 0 ? `${n} p. ✓` : `${n} p. → +${pad}`;
+  const tin = document.getElementById("abTarget"); if (tin) tin.value = target || 0;
+  const n = abModel.pages.length;
+  let goal = Math.max(n, target); goal += ((-goal % unit) + unit) % unit;
+  const pad = goal - n;
+  document.getElementById("abSigInfo").textContent = pad === 0 ? `${n} p. ✓` : `${n} p. → ${goal} (+${pad})`;
 }
 document.getElementById("abSig").addEventListener("change", e => {
   if (!abModel) return; abModel.signatureUnit = +e.target.value; abUpdateSig();
+});
+document.getElementById("abTarget").addEventListener("change", e => {
+  if (!abModel) return; abModel.targetPages = Math.max(0, +e.target.value || 0); abUpdateSig();
 });
 document.getElementById("abPad").addEventListener("click", async () => {
   if (!abModel) return;

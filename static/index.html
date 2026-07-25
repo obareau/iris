@@ -565,7 +565,9 @@
       <button class="btn ghost" id="abUndo" title="Annuler la dernière action" disabled>↶</button>
       <button class="btn ghost" id="abTheme" title="Basculer éditorial / brutaliste">Thème : —</button>
       <button class="btn ghost" id="abTrayToggle" title="Ajouter des photos">🖼 Photothèque</button>
-      <span class="ab-sig">Cahier
+      <span class="ab-sig">Pages
+        <input id="abTarget" type="number" min="0" step="4" title="Nombre de pages visé (0 = minimum)" />
+        Cahier
         <select id="abSig"><option value="4">4</option><option value="8">8</option><option value="16">16</option></select>
         <button class="btn ghost" id="abPad" title="Compléter avec des intercalaires canon">Ajuster</button>
         <span class="ab-sig-info" id="abSigInfo"></span>
