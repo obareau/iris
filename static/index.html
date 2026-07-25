@@ -562,18 +562,52 @@
       <span class="ab-meta" id="abMeta"></span>
     </div>
     <div class="ab-bar-right">
+      <button class="btn ghost" id="abUndo" title="Annuler la dernière action" disabled>↶</button>
       <button class="btn ghost" id="abTheme" title="Basculer éditorial / brutaliste">Thème : —</button>
-      <button class="btn ghost" data-ab-add="text">+ Texte</button>
-      <button class="btn ghost" data-ab-add="quote">+ Citation</button>
-      <button class="btn ghost" data-ab-add="chapter">+ Chapitre</button>
-      <button class="btn ghost" data-ab-add="fill">+ Page pleine</button>
+      <button class="btn ghost" id="abTrayToggle" title="Ajouter des photos">🖼 Photothèque</button>
+      <span class="ab-sig">Cahier
+        <select id="abSig"><option value="4">4</option><option value="8">8</option><option value="16">16</option></select>
+        <button class="btn ghost" id="abPad" title="Compléter avec des intercalaires canon">Ajuster</button>
+        <span class="ab-sig-info" id="abSigInfo"></span>
+      </span>
+      <span class="ab-addgroup">
+        <button class="btn ghost" data-ab-add="text">+ Texte</button>
+        <button class="btn ghost" data-ab-add="insert">+ Encart</button>
+        <button class="btn ghost" data-ab-add="quote">+ Citation</button>
+        <button class="btn ghost" data-ab-add="chapter">+ Chapitre</button>
+        <button class="btn ghost" data-ab-add="fill">+ Page pleine</button>
+        <button class="btn ghost" data-ab-add="recta">+ Recta</button>
+        <button class="btn ghost" data-ab-add="pirate">+ Pirate</button>
+      </span>
       <button class="btn primary" id="abRegen">Aperçu ▸</button>
       <button class="btn ghost" id="abPdf">Export PDF ⤓</button>
       <button class="btn ghost" id="abClose">Fermer</button>
     </div>
   </div>
-  <div class="ab-hint">Ajuste chaque page : gabarit, recadrage (remplir/entier), ordre des photos, pages de texte. Puis « Régénérer l'aperçu ».</div>
+  <div class="ab-hint">Ajuste chaque page : gabarit, recadrage, ordre/ajout de photos (photothèque), légendes, intercalaires. « Cahier » cale le total sur un multiple de 4/8/16. Puis « Aperçu ».</div>
+  <div class="ab-tray" id="abTray" hidden>
+    <div class="ab-tray-head"><span id="abTrayTitle">Photothèque — clic pour ajouter une page pleine</span>
+      <button class="btn ghost" id="abTrayClose">✕</button></div>
+    <div class="ab-tray-grid" id="abTrayGrid"></div>
+  </div>
   <div class="ab-pages" id="abPages"></div>
+</div>
+
+<!-- Wizard de création d'artbook -->
+<div id="artbookWizard" class="wiz-overlay" hidden>
+  <div class="wiz">
+    <div class="wiz-head">
+      <strong>Composer un artbook</strong>
+      <div class="wiz-steps" id="wizSteps"></div>
+      <button class="btn ghost" id="wizClose" title="Annuler">✕</button>
+    </div>
+    <div class="wiz-body" id="wizBody"></div>
+    <div class="wiz-foot">
+      <button class="btn ghost" id="wizPrev">‹ Précédent</button>
+      <span class="wiz-hint" id="wizHint"></span>
+      <button class="btn primary" id="wizNext">Suivant ›</button>
+    </div>
+  </div>
 </div>
 
 <script src="/static/app.js"></script>

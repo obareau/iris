@@ -1538,33 +1538,157 @@ galBulkExportBtn.addEventListener("click", async () => {
 });
 
 const galBulkArtbookBtn = document.getElementById("galBulkArtbookBtn");
-galBulkArtbookBtn.addEventListener("click", async () => {
+galBulkArtbookBtn.addEventListener("click", () => {
   const paths = [...galSelectedPaths];
-  if (!paths.length) { alert("Sélectionne d'abord des photos."); return; }
-  const title = prompt("Titre de l'artbook :", "Iris Artbook");
-  if (title === null) return;
-  const byChapter = confirm(
-    "Découper en chapitres par catégorie ?\n\nOK = chapitres par catégorie · Annuler = un seul flux continu"
-  );
-  const brutalist = confirm(
-    "Style ?\n\nOK = BRUTALISTE (IBM Plex, accents orange, photo + fiche technique)\nAnnuler = ÉDITORIAL (serif, beau livre classique)"
-  );
-  galBulkArtbookBtn.disabled = true;
-  galBulkArtbookBtn.textContent = "Composition… (curation + mise en page)";
+  if (paths.length < 3) { alert("Sélectionne au moins 3 photos pour composer un artbook."); return; }
+  openArtbookWizard(paths);
+});
+
+// ===== Wizard de création d'artbook (5 étapes) =====
+const wizOverlay = document.getElementById("artbookWizard");
+const wizBody = document.getElementById("wizBody");
+const wizStepsEl = document.getElementById("wizSteps");
+const wizHintEl = document.getElementById("wizHint");
+const wizPrevBtn = document.getElementById("wizPrev");
+const wizNextBtn = document.getElementById("wizNext");
+let wizState = null;
+const WIZ_TITLES = ["Couverture & titre", "Style", "Structure", "Reliure & intercalaires", "Récapitulatif"];
+
+function openArtbookWizard(paths) {
+  wizState = {
+    step: 0, paths,
+    title: "Iris Artbook", subtitle: "",
+    coverPath: null,                 // null = auto (meilleur score, côté serveur)
+    theme: "editorial",
+    chapter_by: "category", wantEncarts: true, wantIndex: true,
+    signatureUnit: 8, useRectaFill: true, usePirate: true,
+  };
+  wizOverlay.hidden = false;
+  wizRender();
+}
+function wizClose() { wizOverlay.hidden = true; wizState = null; }
+document.getElementById("wizClose").addEventListener("click", wizClose);
+
+function wizRender() {
+  const s = wizState, step = s.step;
+  wizStepsEl.innerHTML = WIZ_TITLES.map((t, i) =>
+    `<span class="wiz-dot ${i === step ? "on" : ""} ${i < step ? "done" : ""}">${i + 1}. ${t}</span>`
+  ).join("");
+  wizBody.innerHTML = [wizStep0, wizStep1, wizStep2, wizStep3, wizStep4][step]();
+  wizBind[step]?.();
+  wizPrevBtn.style.visibility = step === 0 ? "hidden" : "visible";
+  wizNextBtn.textContent = step === 4 ? "Composer ▸" : "Suivant ›";
+  wizHintEl.textContent = step === 0 && !s.coverPath ? "Couverture : auto (meilleure photo)" : "";
+}
+
+function wizStep0() {
+  const s = wizState;
+  const tiles = [`<button type="button" class="wiz-cov ${!s.coverPath ? "on" : ""}" data-cov="">
+      <span class="wiz-cov-auto">AUTO<br><small>meilleur score</small></span></button>`]
+    .concat(s.paths.map(p => `<button type="button" class="wiz-cov ${s.coverPath === p ? "on" : ""}" data-cov="${encodeURIComponent(p)}">
+      <img src="${abThumb(p)}" alt=""></button>`)).join("");
+  return `
+    <div class="wiz-row">
+      <label>Titre<input id="wizTitle" type="text" value="${escapeAttr(s.title)}" placeholder="Titre de l'artbook"></label>
+      <label>Sous-titre<input id="wizSub" type="text" value="${escapeAttr(s.subtitle)}" placeholder="(date du jour par défaut)"></label>
+    </div>
+    <div class="wiz-label">Couverture <small>— ${s.paths.length} photos sélectionnées</small></div>
+    <div class="wiz-covgrid">${tiles}</div>`;
+}
+function wizStep1() {
+  const s = wizState;
+  const card = (v, name, desc) => `<button type="button" class="wiz-theme ${s.theme === v ? "on" : ""}" data-theme="${v}">
+      <span class="wiz-theme-name">${name}</span><span class="wiz-theme-desc">${desc}</span>
+      <span class="wiz-theme-swatch sw-${v}"></span></button>`;
+  return `<div class="wiz-label">Style graphique</div><div class="wiz-themes">
+      ${card("editorial", "Éditorial", "Helvetica, beau livre, encarts papier centrés")}
+      ${card("brutalist", "Brutaliste", "IBM Plex mono, accents orange, fiches techniques, N&B contrasté")}
+    </div>`;
+}
+function wizStep2() {
+  const s = wizState;
+  const tog = (k, name, desc) => `<label class="wiz-tog"><input type="checkbox" data-tog="${k}" ${s[k] ? "checked" : ""}>
+      <span><strong>${name}</strong><small>${desc}</small></span></label>`;
+  return `<div class="wiz-label">Structure du livre</div>
+    <label class="wiz-tog"><input type="checkbox" id="wizChap" ${s.chapter_by === "category" ? "checked" : ""}>
+      <span><strong>Chapitres par catégorie</strong><small>regroupe et titre chaque catégorie ; sinon un seul flux continu</small></span></label>
+    ${tog("wantEncarts", "Encarts texte auto", "un carton de texte au milieu des doubles pages, par chapitre fourni")}
+    ${tog("wantIndex", "Index de fin", "planche de vignettes numérotées en dernière page")}`;
+}
+function wizStep3() {
+  const s = wizState;
+  const unit = u => `<button type="button" class="wiz-unit ${s.signatureUnit === u ? "on" : ""}" data-unit="${u}">${u}</button>`;
+  const tog = (k, name, desc) => `<label class="wiz-tog"><input type="checkbox" data-tog="${k}" ${s[k] ? "checked" : ""}>
+      <span><strong>${name}</strong><small>${desc}</small></span></label>`;
+  return `<div class="wiz-label">Cahier de reliure <small>— total calé sur un multiple de</small></div>
+    <div class="wiz-units">${unit(4)}${unit(8)}${unit(16)}</div>
+    <div class="wiz-label">Intercalaires de complément</div>
+    ${tog("useRectaFill", "Citations Recta", "devises et communiqués C.G.U. (l'Ordre) pour compléter le cahier")}
+    ${tog("usePirate", "Émissions pirate (glitch)", "détournements d'antenne Renégats / Nova 7, ~1 page sur 8")}`;
+}
+function wizStep4() {
+  const s = wizState;
+  const li = (k, v) => `<div class="wiz-reca-k">${k}</div><div class="wiz-reca-v">${v}</div>`;
+  return `<div class="wiz-label">Prêt à composer</div><div class="wiz-reca">
+      ${li("Titre", escapeAttr(s.title) || "Iris Artbook")}
+      ${li("Photos", s.paths.length)}
+      ${li("Couverture", s.coverPath ? "choisie" : "auto (meilleur score)")}
+      ${li("Style", s.theme === "brutalist" ? "Brutaliste" : "Éditorial")}
+      ${li("Structure", (s.chapter_by === "category" ? "chapitres par catégorie" : "flux continu")
+        + (s.wantEncarts ? " · encarts" : "") + (s.wantIndex ? " · index" : ""))}
+      ${li("Reliure", "multiple de " + s.signatureUnit
+        + (s.useRectaFill ? " · Recta" : "") + (s.usePirate ? " · pirate" : ""))}
+    </div>
+    <div class="wiz-note">La curation (hero shots, gabarits, encarts) est automatique. Tout reste modifiable ensuite dans l'éditeur.</div>`;
+}
+
+const wizBind = {
+  0() {
+    wizBody.querySelector("#wizTitle").oninput = e => wizState.title = e.target.value;
+    wizBody.querySelector("#wizSub").oninput = e => wizState.subtitle = e.target.value;
+    wizBody.querySelectorAll("[data-cov]").forEach(b => b.onclick = () => {
+      const v = b.dataset.cov; wizState.coverPath = v ? decodeURIComponent(v) : null; wizRender();
+    });
+  },
+  1() {
+    wizBody.querySelectorAll("[data-theme]").forEach(b => b.onclick = () => { wizState.theme = b.dataset.theme; wizRender(); });
+  },
+  2() {
+    wizBody.querySelector("#wizChap").onchange = e => wizState.chapter_by = e.target.checked ? "category" : "none";
+    wizBody.querySelectorAll("[data-tog]").forEach(c => c.onchange = e => wizState[c.dataset.tog] = e.target.checked);
+  },
+  3() {
+    wizBody.querySelectorAll("[data-unit]").forEach(b => b.onclick = () => { wizState.signatureUnit = +b.dataset.unit; wizRender(); });
+    wizBody.querySelectorAll("[data-tog]").forEach(c => c.onchange = e => wizState[c.dataset.tog] = e.target.checked);
+  },
+};
+
+wizPrevBtn.addEventListener("click", () => { if (wizState.step > 0) { wizState.step--; wizRender(); } });
+wizNextBtn.addEventListener("click", async () => {
+  if (wizState.step < 4) { wizState.step++; wizRender(); return; }
+  // dernière étape : composer
+  const s = wizState;
+  wizNextBtn.disabled = true; wizNextBtn.textContent = "Composition…";
   try {
     const res = await fetch("/api/artbook", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ paths, title: title || "Iris Artbook",
-        chapter_by: byChapter ? "category" : "none", theme: brutalist ? "brutalist" : "editorial" }),
+      body: JSON.stringify({
+        paths: s.paths, title: s.title || "Iris Artbook", subtitle: s.subtitle,
+        chapter_by: s.chapter_by, theme: s.theme, cover_path: s.coverPath,
+        signature_unit: s.signatureUnit, use_recta_fill: s.useRectaFill,
+        use_pirate: s.usePirate, want_index: s.wantIndex, want_encarts: s.wantEncarts,
+      }),
     });
     if (!res.ok) { alert("Erreur : " + (await res.text())); return; }
     const data = await res.json();
+    wizClose();
     openArtbookEditor(data.model, data.id, data.url);
   } finally {
-    galBulkArtbookBtn.disabled = false;
-    galBulkArtbookBtn.textContent = "📖 Composer un artbook";
+    wizNextBtn.disabled = false; wizNextBtn.textContent = "Composer ▸";
   }
 });
+
+function escapeAttr(t) { return (t || "").replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;"); }
 
 // ===== Éditeur d'artbook =====
 let abModel = null, abId = null;
@@ -1575,6 +1699,9 @@ const SLOTS_N = { full: 1, duo: 2, trio: 3, quad: 4 };
 
 function openArtbookEditor(model, id, url) {
   abModel = model; abId = id;
+  abUndoStack = [];
+  abTrayEl.hidden = true;
+  document.getElementById("abUndo").disabled = true;
   document.getElementById("abTitle").textContent = model.title || "Artbook";
   abEditor.hidden = false;
   abUpdateThemeBtn();
@@ -1591,6 +1718,7 @@ function abUpdateThemeBtn() {
 }
 abThemeBtn.addEventListener("click", () => {
   if (!abModel) return;
+  abPush();
   abModel.theme = (abModel.theme === "brutalist") ? "editorial" : "brutalist";
   abUpdateThemeBtn();
 });
@@ -1600,6 +1728,8 @@ function abRenderEditor() {
   document.getElementById("abMeta").textContent = `${abModel.pages.length} pages · ${imgCount} photos`;
   abPagesEl.innerHTML = "";
   abModel.pages.forEach((pg, idx) => abPagesEl.appendChild(abPageCard(pg, idx)));
+  abUpdateSig();
+  if (!abTrayEl.hidden) abRenderTray();
 }
 
 function abThumb(path) { return "/api/thumbnail?path=" + encodeURIComponent(path); }
@@ -1608,7 +1738,8 @@ function abPageCard(pg, idx) {
   const card = document.createElement("div");
   card.className = "ab-page";
   const label = { cover: "Couverture", chapter: "Chapitre", text: "Texte", quote: "Citation",
-                  full: "Pleine page", duo: "Duo", trio: "Trio", quad: "Grille 4" }[pg.tpl] || pg.tpl;
+                  insert: "Encart", full: "Pleine page", duo: "Duo", trio: "Trio", quad: "Grille 4",
+                  pano: "Panoramique", recta: "Recta", pirate: "Pirate" }[pg.tpl] || pg.tpl;
 
   // en-tête + boutons page
   const head = document.createElement("div");
@@ -1621,6 +1752,7 @@ function abPageCard(pg, idx) {
   if (pg.tpl !== "cover") {
     head.appendChild(mkIcon("↑", "Monter", () => abMovePage(idx, -1)));
     head.appendChild(mkIcon("↓", "Descendre", () => abMovePage(idx, +1)));
+    head.appendChild(mkIcon("⧉", "Dupliquer la page", () => abDuplicatePage(idx)));
     head.appendChild(mkIcon("✕", "Supprimer la page", () => abDeletePage(idx), true));
   }
   card.appendChild(head);
@@ -1652,6 +1784,12 @@ function abPageCard(pg, idx) {
       const rm = document.createElement("button"); rm.textContent = "✕"; rm.title = "Retirer"; rm.onclick = () => abRemovePhoto(idx, si);
       ctl.append(fitBtn, left, right, rm);
       slot.appendChild(ctl);
+      // légende personnalisée (vide = auto depuis les métadonnées)
+      const cap = document.createElement("input"); cap.className = "ab-cap";
+      cap.placeholder = "légende (vide = auto)";
+      cap.value = (pg.caps && pg.caps[path]) || "";
+      cap.oninput = () => { pg.caps = pg.caps || {}; if (cap.value) pg.caps[path] = cap.value; else delete pg.caps[path]; };
+      slot.appendChild(cap);
       slots.appendChild(slot);
     });
     card.appendChild(slots);
@@ -1662,7 +1800,9 @@ function abPageCard(pg, idx) {
       ["Titre", "title", pg.title || "", false],
       ["Sous-titre", "subtitle", pg.subtitle || "", false],
     ], idx);
-    wrap.appendChild(f); card.appendChild(wrap);
+    const cov = document.createElement("button"); cov.className = "btn ghost ab-cover-btn";
+    cov.textContent = "Changer la couverture"; cov.onclick = () => abToggleTray("cover");
+    wrap.appendChild(f); wrap.appendChild(cov); card.appendChild(wrap);
   } else if (pg.tpl === "chapter") {
     card.appendChild(abFields([["Titre du chapitre", "title", pg.title || "", false]], idx));
   } else if (pg.tpl === "text") {
@@ -1671,6 +1811,29 @@ function abPageCard(pg, idx) {
       ["Titre", "heading", pg.heading || "", false],
       ["Texte", "body", pg.body || "", true],
     ], idx));
+  } else if (pg.tpl === "insert") {
+    card.appendChild(abFields([
+      ["Surtitre", "kicker", pg.kicker || "", false],
+      ["Titre", "heading", pg.heading || "", false],
+      ["Texte", "body", pg.body || "", true],
+    ], idx));
+    // photo de fond optionnelle (encart flottant au-dessus d'une pleine page)
+    const slots = document.createElement("div"); slots.className = "ab-slots";
+    if ((pg.items || []).length) {
+      const path = pg.items[0];
+      const fit = (pg.fits || {})[path] || "cover";
+      const slot = document.createElement("div"); slot.className = "ab-slot";
+      slot.innerHTML = `<img class="${fit === "contain" ? "contain" : ""}" src="${abThumb(path)}" alt="" />`;
+      const ctl = document.createElement("div"); ctl.className = "ab-slot-ctl";
+      const rm = document.createElement("button"); rm.textContent = "✕"; rm.title = "Retirer le fond";
+      rm.onclick = () => { pg.items = []; abRenderEditor(); };
+      ctl.appendChild(rm); slot.appendChild(ctl); slots.appendChild(slot);
+    } else {
+      const hint = document.createElement("div"); hint.className = "ab-hint";
+      hint.textContent = "Fond : aucune photo (carton sur papier). Glisse une photo depuis la sélection pour l'ajouter.";
+      slots.appendChild(hint);
+    }
+    card.appendChild(slots);
   } else if (pg.tpl === "quote") {
     card.appendChild(abFields([
       ["Citation", "quote", pg.quote || "", true],
@@ -1689,6 +1852,29 @@ function abPageCard(pg, idx) {
     card.appendChild(abFields([
       ["Texte", "text", pg.text || "", false],
       ["Sous-texte", "sub", pg.sub || "", false],
+    ], idx));
+  } else if (pg.tpl === "recta") {
+    // variante devise (percutant) / communiqué (riche)
+    const box = document.createElement("div"); box.className = "ab-fields";
+    const lbl = document.createElement("label"); lbl.textContent = "Variante";
+    const sel = document.createElement("select");
+    [["devise", "Devise (percutant)"], ["communique", "Communiqué (riche)"]].forEach(([v, t]) => {
+      const o = document.createElement("option"); o.value = v; o.textContent = t;
+      if ((pg.variant || "devise") === v) o.selected = true; sel.appendChild(o);
+    });
+    sel.onchange = () => { abPush(); abModel.pages[idx].variant = sel.value; abRenderEditor(); };
+    box.append(lbl, sel); card.appendChild(box);
+    card.appendChild(abFields([
+      ["Devise", "devise", pg.devise || "", false],
+      ["Réf. communiqué", "ref", pg.ref || "", false],
+      ["Corps (si communiqué)", "text", pg.text || "", true],
+    ], idx));
+  } else if (pg.tpl === "pirate") {
+    card.appendChild(abFields([
+      ["Faction (tag)", "tag", pg.tag || "", false],
+      ["N° interception", "num", pg.num || "", false],
+      ["Message", "text", pg.text || "", true],
+      ["Signature", "sign", pg.sign || "", false],
     ], idx));
   } else if (pg.tpl === "index") {
     const info = document.createElement("div"); info.className = "ab-fields";
@@ -1710,36 +1896,118 @@ function abFields(defs, idx) {
   return box;
 }
 
-// mutations
+// mutations (chaque mutation empile un snapshot pour l'undo via abPush)
 function abMovePage(idx, d) { const j = idx + d; if (j < 1 || j >= abModel.pages.length) return;
-  [abModel.pages[idx], abModel.pages[j]] = [abModel.pages[j], abModel.pages[idx]]; abRenderEditor(); }
-function abDeletePage(idx) { abModel.pages.splice(idx, 1); abRenderEditor(); }
+  abPush(); [abModel.pages[idx], abModel.pages[j]] = [abModel.pages[j], abModel.pages[idx]]; abRenderEditor(); }
+function abDeletePage(idx) { abPush(); abModel.pages.splice(idx, 1); abRenderEditor(); }
+function abDuplicatePage(idx) { abPush();
+  abModel.pages.splice(idx + 1, 0, JSON.parse(JSON.stringify(abModel.pages[idx]))); abRenderEditor(); }
 function abSetTemplate(idx, t) {
+  abPush();
   const pg = abModel.pages[idx];
   pg.tpl = t;
   // full/pano ne prennent qu'une photo — on rogne les surplus.
   if ((t === "full" || t === "pano") && pg.items && pg.items.length > 1) pg.items = pg.items.slice(0, 1);
   abRenderEditor();
 }
-function abToggleFit(idx, path) { const pg = abModel.pages[idx]; pg.fits = pg.fits || {};
+function abToggleFit(idx, path) { abPush(); const pg = abModel.pages[idx]; pg.fits = pg.fits || {};
   pg.fits[path] = (pg.fits[path] === "contain") ? "cover" : "contain"; abRenderEditor(); }
 function abMovePhoto(idx, si, d) { const it = abModel.pages[idx].items; const j = si + d;
-  if (j < 0 || j >= it.length) return; [it[si], it[j]] = [it[j], it[si]]; abRenderEditor(); }
-function abRemovePhoto(idx, si) { abModel.pages[idx].items.splice(si, 1);
+  if (j < 0 || j >= it.length) return; abPush(); [it[si], it[j]] = [it[j], it[si]]; abRenderEditor(); }
+function abRemovePhoto(idx, si) { abPush(); abModel.pages[idx].items.splice(si, 1);
   if (!abModel.pages[idx].items.length) abModel.pages.splice(idx, 1); abRenderEditor(); }
 
 // ajout de pages
 document.querySelectorAll("[data-ab-add]").forEach(btn => {
-  btn.addEventListener("click", () => {
+  btn.addEventListener("click", async () => {
     const kind = btn.dataset.abAdd;
-    const page = kind === "text" ? { tpl: "text", kicker: "", heading: "Titre", body: "Votre texte…" }
-      : kind === "quote" ? { tpl: "quote", quote: "Une citation marquante.", attribution: "" }
-      : kind === "fill" ? { tpl: "fill", color: "orange", text: "STATEMENT", sub: "" }
-      : { tpl: "chapter", title: "Nouveau chapitre" };
-    abModel.pages.push(page); abRenderEditor();
+    let page;
+    if (kind === "recta" || kind === "pirate") {
+      // tire une vraie citation canon côté serveur
+      try {
+        const r = await fetch(`/api/artbook-citation?kind=${kind}`);
+        page = (await r.json()).page;
+      } catch (e) { alert("Impossible de récupérer la citation."); return; }
+    } else {
+      page = kind === "text" ? { tpl: "text", kicker: "", heading: "Titre", body: "Votre texte…" }
+        : kind === "insert" ? { tpl: "insert", kicker: "ENCART", heading: "Titre de l'encart", body: "Texte de l'encart…", items: [] }
+        : kind === "quote" ? { tpl: "quote", quote: "Une citation marquante.", attribution: "" }
+        : kind === "fill" ? { tpl: "fill", color: "orange", text: "STATEMENT", sub: "" }
+        : { tpl: "chapter", title: "Nouveau chapitre" };
+    }
+    abPush(); abModel.pages.push(page); abRenderEditor();
     abPagesEl.lastElementChild?.scrollIntoView({ behavior: "smooth", block: "center" });
   });
 });
+
+// ===== Undo, photothèque, reliure (édition « de A à Z ») =====
+let abUndoStack = [];
+function abPush() {
+  if (!abModel) return;
+  abUndoStack.push(JSON.stringify(abModel));
+  if (abUndoStack.length > 50) abUndoStack.shift();
+  const b = document.getElementById("abUndo"); if (b) b.disabled = false;
+}
+function abUndo() {
+  if (!abUndoStack.length) return;
+  abModel = JSON.parse(abUndoStack.pop());
+  document.getElementById("abUndo").disabled = abUndoStack.length === 0;
+  abUpdateThemeBtn(); abRenderEditor();
+}
+document.getElementById("abUndo").addEventListener("click", abUndo);
+
+// indicateur de reliure : pages actuelles + complément pour le cahier choisi
+function abUpdateSig() {
+  const unit = abModel.signatureUnit || 4;
+  document.getElementById("abSig").value = String(unit);
+  const n = abModel.pages.length, pad = (unit - (n % unit)) % unit;
+  document.getElementById("abSigInfo").textContent = pad === 0 ? `${n} p. ✓` : `${n} p. → +${pad}`;
+}
+document.getElementById("abSig").addEventListener("change", e => {
+  if (!abModel) return; abModel.signatureUnit = +e.target.value; abUpdateSig();
+});
+document.getElementById("abPad").addEventListener("click", async () => {
+  if (!abModel) return;
+  const unit = +document.getElementById("abSig").value;
+  const btn = document.getElementById("abPad"); btn.disabled = true; btn.textContent = "…";
+  try {
+    abPush();
+    const r = await fetch(`/api/artbook/${abId}/pad`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model: abModel, unit }),
+    });
+    if (!r.ok) { alert("Ajustement échoué : " + (await r.text())); abUndoStack.pop(); return; }
+    abModel = (await r.json()).model; abRenderEditor();
+  } finally { btn.disabled = false; btn.textContent = "Ajuster"; }
+});
+
+// Photothèque : ajoute une page pleine (ou change la couverture) depuis la sélection d'origine
+let abTrayMode = "add";
+const abTrayEl = document.getElementById("abTray");
+function abToggleTray(mode) {
+  abTrayMode = mode || "add";
+  const show = abTrayEl.hidden || mode === "cover";
+  abTrayEl.hidden = !show;
+  document.getElementById("abTrayTitle").textContent = abTrayMode === "cover"
+    ? "Photothèque — clic pour définir la couverture" : "Photothèque — clic pour ajouter une page pleine";
+  if (show) abRenderTray();
+}
+function abRenderTray() {
+  const grid = document.getElementById("abTrayGrid"); grid.innerHTML = "";
+  (abModel.allPaths || []).forEach(p => {
+    const b = document.createElement("button"); b.className = "ab-tray-cell";
+    b.innerHTML = `<img src="${abThumb(p)}" alt="">`;
+    b.onclick = () => {
+      abPush();
+      if (abTrayMode === "cover") { abModel.pages[0].hero = p; abModel.coverPath = p; abTrayMode = "add"; abTrayEl.hidden = true; }
+      else abModel.pages.push({ tpl: "full", items: [p] });
+      abRenderEditor();
+    };
+    grid.appendChild(b);
+  });
+}
+document.getElementById("abTrayToggle").addEventListener("click", () => abToggleTray("add"));
+document.getElementById("abTrayClose").addEventListener("click", () => { abTrayEl.hidden = true; });
 
 // régénération de l'aperçu
 document.getElementById("abRegen").addEventListener("click", async () => {

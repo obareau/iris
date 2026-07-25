@@ -5,8 +5,8 @@ After=network.target
 [Service]
 Type=simple
 User=olivier
-WorkingDirectory=/home/olivier/iris
-ExecStart=/home/olivier/iris/venv/bin/uvicorn backend.main:app --host 0.0.0.0 --port 8800
+WorkingDirectory=/home/olivier/DEV/iris
+ExecStart=/home/olivier/DEV/iris/venv/bin/python -m uvicorn backend.main:app --host 0.0.0.0 --port 8800
 Restart=on-failure
 RestartSec=3
 

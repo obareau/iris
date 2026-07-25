@@ -85,7 +85,7 @@ notation/suppression/publication/gestion de la bibliothèque restent réservées
 à l'UI (aperçu + confirmation humaine).
 
 ```bash
-claude mcp add iris -s user -- uv run --with mcp ~/iris/iris_mcp.py
+claude mcp add iris -s user -- uv run --with mcp ~/DEV/iris/iris_mcp.py
 ```
 
 ## Installation (Linux + GPU NVIDIA)

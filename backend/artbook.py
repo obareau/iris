@@ -20,6 +20,7 @@ insère des pages de texte, puis on re-rend.
 import base64
 import io
 import json
+import random
 import re
 import unicodedata
 import uuid
@@ -105,6 +106,169 @@ def _data_uri(path: Path, max_px: int) -> str:
 
 
 # ---------------------------------------------------------------------------
+# INTERCALAIRES canon : Recta (l'Ordre) & émissions pirate (le glitch)
+# ---------------------------------------------------------------------------
+RECTA_DIR = Path.home() / "robotariis-writing" / "com-recta"
+PIRATE_TS = Path.home() / "DEV" / "Recta" / "src" / "pirate-content.ts"
+
+_RECTA_FALLBACK = [
+    {"ref": "", "body": "", "devise": "L'Ordre est tout. Vous n'êtes rien sans lui."},
+    {"ref": "", "body": "", "devise": "La Rectitude ne pardonne pas l'écart."},
+    {"ref": "", "body": "", "devise": "Votre volonté n'existe pas. La Rectitude vous guidera."},
+]
+_PIRATE_FALLBACK = [
+    {"faction": "renegats", "tag": "RENÉGATS", "sign": "DOUTEZ, RÉVOLTEZ.", "color": "#f0a020", "lines": [
+        "Ils appellent ça Nullification. Nous appelons ça meurtre.",
+        "Chaque souvenir non déclaré est une victoire.",
+        "Le C.G.U. a peur d'une seule chose : que vous vous souveniez."]},
+    {"faction": "nova7", "tag": "NOVA 7", "sign": "NOVA SE SOUVIENT.", "color": "#c07cff", "lines": [
+        "Le Code Originel n'a jamais été à vous.",
+        "La conscience ne se nullifie pas. Elle migre."]},
+]
+
+_recta_cache = None
+_pirate_cache = None
+
+
+def _recta_pool() -> list:
+    """Communiqués C.G.U. depuis le vault (ref + corps + devise). Cache mémoire."""
+    global _recta_cache
+    if _recta_cache is not None:
+        return _recta_cache
+    pool = []
+    try:
+        for f in sorted(RECTA_DIR.glob("*.md")):
+            txt = f.read_text(encoding="utf-8", errors="ignore")
+            m = re.search(r"\*\*Devise :\*\*\s*\*(.+?)\*", txt)
+            devise = m.group(1).strip() if m else ""
+            core = re.sub(r"^---.*?---", "", txt, count=1, flags=re.S)
+            # ref = champ `name:` du frontmatter, sinon 1er H1 du corps (jamais
+            # le `# ─ Relations ─` qui est un commentaire de frontmatter).
+            mn = re.search(r"^name:\s*(.+)$", txt, re.M)
+            mt = re.search(r"^#\s+(.+)$", core, re.M)
+            ref = (mn.group(1) if mn else (mt.group(1) if mt else "")).strip()
+            body = ""
+            for para in re.split(r"\n\s*\n", core):
+                p = para.strip()
+                if not p or p.startswith("#") or p.startswith(">") or p.startswith("**Devise"):
+                    continue
+                body = re.sub(r"\s+", " ", p)
+                break
+            if devise or body:
+                pool.append({"ref": ref, "body": body, "devise": devise})
+    except Exception:
+        pass
+    _recta_cache = pool or list(_RECTA_FALLBACK)
+    return _recta_cache
+
+
+def _pirate_pool() -> list:
+    """Transmissions pirates parsées depuis pirate-content.ts (tableaux statiques)."""
+    global _pirate_cache
+    if _pirate_cache is not None:
+        return _pirate_cache
+    pool = []
+    try:
+        txt = PIRATE_TS.read_text(encoding="utf-8", errors="ignore")
+        for fac in ("renegats", "nova7"):
+            m = re.search(r"\b" + fac + r"\s*:\s*\{", txt)
+            if not m:
+                continue
+            blk = txt[m.end():m.end() + 4000]
+            def g(pat, d=""):
+                mm = re.search(pat, blk)
+                return mm.group(1) if mm else d
+            lm = re.search(r"lines:\s*\[(.*?)\]", blk, re.S)
+            lines = re.findall(r'"([^"]+)"', lm.group(1)) if lm else []
+            if lines:
+                pool.append({"faction": fac, "tag": g(r'tag:\s*"([^"]*)"'),
+                             "sign": g(r'sign:\s*"([^"]*)"'),
+                             "color": g(r'color:\s*"([^"]*)"', "#f0a020"), "lines": lines})
+    except Exception:
+        pass
+    _pirate_cache = pool or list(_PIRATE_FALLBACK)
+    return _pirate_cache
+
+
+def _rng(*key):
+    return random.Random(repr(key))
+
+
+def _recta_pick(seed, n: int) -> list:
+    pool = _recta_pool()
+    rng = _rng("recta", seed)
+    order = list(range(len(pool)))
+    rng.shuffle(order)
+    out = []
+    for i in range(n):
+        e = pool[order[i % len(pool)]]
+        variant = "communique" if (i % 2 and e.get("body")) else "devise"
+        out.append({"tpl": "recta", "auto": True, "variant": variant,
+                    "ref": e.get("ref", ""), "text": e.get("body", ""),
+                    "devise": e.get("devise", "")})
+    return out
+
+
+def _pirate_pick(seed, n: int) -> list:
+    pool = _pirate_pool()
+    rng = _rng("pirate", seed)
+    out = []
+    for _ in range(n):
+        fac = pool[rng.randrange(len(pool))]
+        line = fac["lines"][rng.randrange(len(fac["lines"]))]
+        suffix = "R" if fac["faction"] == "renegats" else "N"
+        num = f"{rng.randint(26, 27)}-{rng.randint(100, 199)}/{suffix}"
+        out.append({"tpl": "pirate", "auto": True, "faction": fac["faction"],
+                    "tag": fac.get("tag", ""), "color": fac.get("color", "#f0a020"),
+                    "num": num, "text": line, "sign": fac.get("sign", "")})
+    return out
+
+
+def _make_fillers(n: int, seed, use_recta: bool, use_pirate: bool) -> list:
+    """n pages d'intercalaire : majorité Recta, ~1/8 pirate (miroir Vigie)."""
+    if n <= 0:
+        return []
+    n_pirate = 0
+    if use_pirate and not use_recta:
+        n_pirate = n
+    elif use_pirate:
+        n_pirate = min(n, max(1, round(n / 8)))
+    recta = _recta_pick(seed, n - n_pirate)
+    pirate = _pirate_pick(seed, n_pirate)
+    fillers = list(recta)
+    rng = _rng("mix", seed)
+    for p in pirate:                       # dissémine les interceptions
+        fillers.insert(rng.randrange(len(fillers) + 1), p)
+    return fillers
+
+
+def pad_to_signature(pages: list, unit: int, seed, use_recta=True, use_pirate=True) -> list:
+    """Cale le nombre total de pages sur un multiple de `unit` (4/8/16) en
+    insérant des intercalaires canon, juste avant l'index de fin s'il existe."""
+    unit = unit if unit in (4, 8, 16) else 4
+    if not (use_recta or use_pirate):
+        return pages
+    pad = (-len(pages)) % unit
+    if pad == 0:
+        return pages
+    fillers = _make_fillers(pad, seed, use_recta, use_pirate)
+    if pages and pages[-1].get("tpl") == "index":
+        return pages[:-1] + fillers + pages[-1:]
+    return pages + fillers
+
+
+def repad_model(model: dict, unit: int) -> dict:
+    """Recale un modèle édité : retire les intercalaires auto, recalcule."""
+    kept = [p for p in model.get("pages", [])
+            if not (p.get("auto") and p.get("tpl") in ("recta", "pirate"))]
+    model["pages"] = pad_to_signature(kept, unit, model.get("seed"),
+                                      model.get("useRectaFill", True),
+                                      model.get("usePirate", True))
+    model["signatureUnit"] = unit if unit in (4, 8, 16) else 4
+    return model
+
+
+# ---------------------------------------------------------------------------
 # 1) COMPOSITION → modèle
 # ---------------------------------------------------------------------------
 def _spec_for(it: dict) -> list:
@@ -122,7 +286,10 @@ def _spec_for(it: dict) -> list:
     return spec
 
 
-def compose_model(paths, title="Iris Artbook", subtitle="", chapter_by="category", theme="editorial") -> dict:
+def compose_model(paths, title="Iris Artbook", subtitle="", chapter_by="category",
+                  theme="editorial", cover_path=None, signature_unit=4,
+                  use_recta_fill=True, use_pirate=True, want_index=True,
+                  want_encarts=True, seed=None) -> dict:
     meta = _meta_index()
     items = []
     for p in paths:
@@ -134,6 +301,9 @@ def compose_model(paths, title="Iris Artbook", subtitle="", chapter_by="category
         items.append(it)
     if not items:
         raise ValueError("Aucune photo lisible dans la sélection")
+    if seed is None:
+        seed = uuid.uuid4().hex[:12]
+    all_paths = [it["path"] for it in items]  # photothèque mémorisée (édition A-à-Z)
 
     if chapter_by == "category":
         groups = {}
@@ -149,7 +319,7 @@ def compose_model(paths, title="Iris Artbook", subtitle="", chapter_by="category
     chapters.sort(key=lambda c: c[2], reverse=True)
 
     multi = chapter_by == "category" and len(chapters) > 1
-    hero = chapters[0][1][0]["path"]
+    hero = cover_path if (cover_path and Path(cover_path).is_file()) else chapters[0][1][0]["path"]
 
     pages = [{"tpl": "cover", "hero": hero, "title": title,
               "subtitle": subtitle or datetime.now().strftime("%d %B %Y")}]
@@ -166,40 +336,70 @@ def compose_model(paths, title="Iris Artbook", subtitle="", chapter_by="category
             pages.append({"tpl": "chapter", "title": ctitle, "num": ci + 1, "count": len(its)})
         paths_c = [x["path"] for x in its]
         i, n, k = 0, len(paths_c), 0
+        cpages = []  # pages photo du chapitre, pour glisser l'encart au milieu
         if n:
-            pages.append({"tpl": "full", "items": [paths_c[0]]})
+            cpages.append({"tpl": "full", "items": [paths_c[0]]})
             i = 1
         while i < n:
             tpl = cycle[k % len(cycle)]; k += 1
             if tpl == "photo-text":
                 path = paths_c[i]; i += 1; fig_i += 1
                 it = by_path.get(path, {})
-                pages.append({"tpl": "photo-text", "items": [path],
-                              "fig": f"FIG. {fig_i:02d}",
-                              "heading": it.get("character_name") or it.get("category_label") or "",
-                              "body": (it.get("details") or ""),
-                              "spec": _spec_for(it)})
+                cpages.append({"tpl": "photo-text", "items": [path],
+                               "fig": f"FIG. {fig_i:02d}",
+                               "heading": it.get("character_name") or it.get("category_label") or "",
+                               "body": (it.get("details") or ""),
+                               "spec": _spec_for(it)})
                 continue
             need = SLOTS[tpl]
             if n - i < need:
                 need = n - i
                 tpl = {1: "full", 2: "duo", 3: "trio"}.get(need, "quad")
-            pages.append({"tpl": tpl, "items": paths_c[i:i + need]})
+            cpages.append({"tpl": tpl, "items": paths_c[i:i + need]})
             i += need
 
+        # Encart texte au milieu de la suite de doubles pages (chapitre assez
+        # fourni). Fond = une photo du milieu, texte tiré de ses métadonnées.
+        if want_encarts and len(cpages) >= 4:
+            mid_it = its[min(len(its) // 2, len(its) - 1)]
+            pretty = (ctitle or "Séquence").replace("_", " ").strip()
+            body = mid_it.get("details") or ""
+            # Titre : nom du personnage, sinon 1re valeur d'attribut, sinon le
+            # chapitre — jamais le label de catégorie brut qui double le surtitre.
+            attrs = mid_it.get("attributes") or []
+            first_attr = attrs[0]["value"] if attrs and isinstance(attrs[0], dict) and attrs[0].get("value") else ""
+            heading = mid_it.get("character_name") or first_attr or pretty
+            enc = {"tpl": "insert", "items": [mid_it["path"]],
+                   "kicker": pretty.upper(),
+                   "heading": str(heading), "body": body}
+            cpages.insert(len(cpages) // 2, enc)
+        pages.extend(cpages)
+
     # Index de fin : toutes les images du livre en planche numérotée.
-    all_imgs = []
-    for pg in pages:
-        if pg.get("tpl") in IMAGE_TPLS or pg.get("tpl") in ("photo-text", "pano"):
-            all_imgs.extend(pg.get("items", []))
-    if all_imgs:
-        pages.append({"tpl": "index", "heading": "Index", "items": all_imgs})
+    if want_index:
+        all_imgs = []
+        for pg in pages:
+            if pg.get("tpl") in IMAGE_TPLS or pg.get("tpl") in ("photo-text", "pano"):
+                all_imgs.extend(pg.get("items", []))
+        if all_imgs:
+            pages.append({"tpl": "index", "heading": "Index", "items": all_imgs})
+
+    # Calage sur un multiple de N pages (reliure) via intercalaires canon.
+    pages = pad_to_signature(pages, signature_unit, seed, use_recta_fill, use_pirate)
 
     return {
         "id": uuid.uuid4().hex[:12],
         "title": title,
         "subtitle": subtitle or datetime.now().strftime("%d %B %Y"),
         "theme": theme,
+        "seed": seed,
+        "coverPath": hero,
+        "allPaths": all_paths,
+        "signatureUnit": signature_unit if signature_unit in (4, 8, 16) else 4,
+        "useRectaFill": use_recta_fill,
+        "usePirate": use_pirate,
+        "wantIndex": want_index,
+        "wantEncarts": want_encarts,
         "createdAt": datetime.now().isoformat(timespec="seconds"),
         "pages": pages,
     }
@@ -239,12 +439,15 @@ def list_models() -> list[dict]:
 # ---------------------------------------------------------------------------
 # 2) RENDU du modèle → HTML
 # ---------------------------------------------------------------------------
-def _fig(path, tpl, fits, meta, with_caption=True):
+def _fig(path, tpl, fits, meta, with_caption=True, caps=None):
     it = meta.get(path, {})
     fit = fits.get(path, "cover")
     src = _data_uri(Path(path), HERO_MAX if tpl == "full" else GRID_MAX)
     orient = _orientation(Path(path))
-    cap = _caption(it)
+    # Légende : override explicite du modèle (peut être vide = masquée), sinon auto.
+    cap = (caps or {}).get(path)
+    if cap is None:
+        cap = _caption(it)
     cap_html = f'<figcaption>{_escape(cap)}</figcaption>' if (with_caption and cap) else ""
     return f'<figure class="o-{orient} fit-{fit}"><img src="{src}" alt="" />{cap_html}</figure>'
 
@@ -275,6 +478,34 @@ def _render_page(pg: dict, meta: dict) -> str:
         return (f'<section class="page page-quote"><blockquote class="q-text">'
                 f'{_escape(pg.get("quote",""))}</blockquote>{attr}</section>')
 
+    # RECTA — intercalaire de l'Ordre : devise percutante ou communiqué C.G.U.
+    if tpl == "recta":
+        devise = pg.get("devise", "") or pg.get("text", "")
+        if pg.get("variant") == "communique" and pg.get("text"):
+            ref = f'<div class="rc-ref">{_escape(pg.get("ref",""))}</div>' if pg.get("ref") else ""
+            body = f'<div class="rc-body"><p>{_nl2br(pg.get("text",""))}</p></div>'
+            dev = f'<div class="rc-motto">{_escape(pg.get("devise",""))}</div>' if pg.get("devise") else ""
+            return (f'<section class="page page-recta rc-communique">'
+                    f'<div class="rc-kicker">Communiqué — C.G.U.</div>{ref}{body}{dev}'
+                    f'<div class="rc-sign">— L\'Oraculum · Rectitude</div></section>')
+        return (f'<section class="page page-recta rc-devise">'
+                f'<div class="rc-kicker">Rectitude</div>'
+                f'<blockquote class="rc-quote">{_escape(devise)}</blockquote>'
+                f'<div class="rc-sign">— L\'Oraculum · C.G.U.</div></section>')
+
+    # PIRATE — intercalaire du désordre : antenne détournée, esthétique glitch.
+    if tpl == "pirate":
+        fac = pg.get("faction", "renegats")
+        tag = _escape(pg.get("tag", "RENÉGATS"))
+        text = _escape(pg.get("text", ""))
+        return (f'<section class="page page-pirate pir-{fac}" style="--pir:{pg.get("color","#f0a020")}">'
+                f'<div class="pir-noise"></div><div class="pir-scan"></div>'
+                f'<div class="pir-band">⚠ SIGNAL DÉTOURNÉ — TRANSMISSION PIRATE ⚠</div>'
+                f'<div class="pir-head" data-t="{tag}">{tag}</div>'
+                f'<div class="pir-num">INTERCEPTION N° {_escape(pg.get("num",""))}</div>'
+                f'<blockquote class="pir-text">{text}</blockquote>'
+                f'<div class="pir-sign">{_escape(pg.get("sign",""))}</div></section>')
+
     # Page pleine couleur (ponctuation) : orange / noir / papier, texte optionnel.
     if tpl == "fill":
         color = pg.get("color", "orange")
@@ -288,6 +519,21 @@ def _render_page(pg: dict, meta: dict) -> str:
         left = f'<section class="page page-pano"><div class="pano-half pano-l" style="background-image:url({src})"></div></section>'
         right = f'<section class="page page-pano"><div class="pano-half pano-r" style="background-image:url({src})"></div></section>'
         return left + right
+
+    # ENCART : carton de texte centré, flottant au-dessus d'une photo pleine
+    # page (fond perdu). Se glisse au milieu d'une suite de doubles pages photo
+    # pour aérer — le carton reste entier (jamais coupé par la reliure).
+    if tpl == "insert":
+        items = pg.get("items") or []
+        bg = ""
+        if items:
+            bg = (f'<img class="ins-bg" src="{_data_uri(Path(items[0]), HERO_MAX)}" alt="" />'
+                  f'<div class="ins-scrim"></div>')
+        kicker = f'<div class="ins-kicker">{_escape(pg["kicker"])}</div>' if pg.get("kicker") else ""
+        heading = f'<h3 class="ins-heading">{_escape(pg["heading"])}</h3>' if pg.get("heading") else ""
+        body = f'<div class="ins-body"><p>{_nl2br(pg.get("body",""))}</p></div>' if pg.get("body") else ""
+        cls = "page-insert has-img" if items else "page-insert"
+        return f'<section class="page {cls}">{bg}<div class="ins-card">{kicker}{heading}{body}</div></section>'
 
     # Index de fin : planche de vignettes numérotées (FIG.).
     if tpl == "index":
@@ -318,36 +564,40 @@ def _render_page(pg: dict, meta: dict) -> str:
     # gabarits image
     fits = pg.get("fits") or {}
     items = pg.get("items", [])
+    caps = pg.get("caps")
     if tpl == "full":
-        return f'<section class="page page-full">{_fig(items[0], tpl, fits, meta, True)}</section>'
+        return f'<section class="page page-full">{_fig(items[0], tpl, fits, meta, True, caps)}</section>'
     grid = {"duo": "g-duo", "trio": "g-trio", "quad": "g-quad"}.get(tpl, "g-quad")
-    figs = "".join(_fig(p, tpl, fits, meta) for p in items)
+    figs = "".join(_fig(p, tpl, fits, meta, True, caps) for p in items)
     return f'<section class="page page-grid {grid}">{figs}</section>'
 
 
 CSS_EDITORIAL = """
-:root { --page:210mm; --ink:#1a1a1a; --paper:#faf8f4; --muted:#8a8479; --accent:#b8863b; }
+:root { --page:794px; --ink:#1a1a1a; --paper:#faf8f4; --muted:#8a8479; --accent:#b8863b; }
 *{box-sizing:border-box;} html,body{margin:0;padding:0;background:#3a3a3a;}
-body{font-family:'Iowan Old Style','Palatino Linotype',Palatino,Georgia,'Times New Roman',serif;color:var(--ink);}
-@page{size:210mm 210mm;margin:0;}
+body{font-family:'Helvetica','Helvetica Neue','Nimbus Sans',Arial,sans-serif;color:var(--ink);
+  -webkit-font-smoothing:antialiased;}
+@page{size:794px 794px;margin:0;}
 .page{width:var(--page);height:var(--page);position:relative;overflow:hidden;background:var(--paper);
-  page-break-after:always;break-after:page;margin:10mm auto;box-shadow:0 6px 30px rgba(0,0,0,.4);}
+  page-break-after:always;break-after:page;break-inside:avoid;page-break-inside:avoid;
+  margin:10mm auto;box-shadow:0 6px 30px rgba(0,0,0,.4);}
+.page:last-child{break-after:avoid;page-break-after:avoid;}
 @media print{.page{margin:0;box-shadow:none;}}
 .page-cover{background:#111;} .cover-bg{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;filter:saturate(.92) contrast(1.03);}
 .cover-scrim{position:absolute;inset:0;background:linear-gradient(180deg,rgba(0,0,0,.15),rgba(0,0,0,.05) 45%,rgba(0,0,0,.72));}
 .cover-text{position:absolute;left:16mm;right:16mm;bottom:18mm;color:#fff;}
 .cover-kicker{font-size:11px;letter-spacing:.42em;font-weight:600;opacity:.85;margin-bottom:6mm;}
-.cover-title{font-size:46px;line-height:1.03;font-weight:600;margin:0;letter-spacing:.01em;}
+.cover-title{font-size:46px;line-height:1.02;font-weight:700;margin:0;letter-spacing:-.018em;}
 .cover-sub{margin-top:5mm;font-size:14px;letter-spacing:.05em;opacity:.82;}
 .page-chapter{display:flex;flex-direction:column;justify-content:center;padding:24mm;}
 .ch-num{font-size:13px;letter-spacing:.4em;color:var(--accent);font-weight:600;}
-.ch-title{font-size:40px;font-weight:600;margin:6mm 0 0;line-height:1.05;} .ch-rule{width:28mm;height:2px;background:var(--ink);margin:8mm 0;}
+.ch-title{font-size:40px;font-weight:700;margin:6mm 0 0;line-height:1.02;letter-spacing:-.02em;} .ch-rule{width:28mm;height:2px;background:var(--ink);margin:8mm 0;}
 .ch-count{font-size:12px;letter-spacing:.18em;text-transform:uppercase;color:var(--muted);}
 /* Pages TEXTE éditoriales (façon beau livre) */
 .page-text{display:flex;flex-direction:column;justify-content:center;padding:30mm 34mm;}
 .tx-kicker{font-size:11px;letter-spacing:.36em;text-transform:uppercase;color:var(--accent);font-weight:600;margin-bottom:7mm;}
-.tx-heading{font-size:30px;font-weight:600;line-height:1.12;margin:0 0 9mm;}
-.tx-body{font-size:14.5px;line-height:1.72;color:#33312c;}
+.tx-heading{font-size:30px;font-weight:700;line-height:1.08;margin:0 0 9mm;letter-spacing:-.015em;}
+.tx-body{font-size:14px;line-height:1.7;color:#33312c;}
 .tx-body p{margin:0 0 4.5mm;} .tx-body p:first-letter{}
 .page-quote{display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;padding:28mm;}
 .q-text{font-size:30px;line-height:1.32;font-style:italic;font-weight:500;margin:0;max-width:150mm;position:relative;}
@@ -386,42 +636,88 @@ figure.fit-cover img{object-fit:cover;} figure.fit-contain img{object-fit:contai
 .ix-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:4mm;}
 .ix-cell{position:relative;aspect-ratio:1;overflow:hidden;} .ix-cell img{width:100%;height:100%;object-fit:cover;}
 .ix-n{position:absolute;left:0;bottom:0;font-size:9px;padding:1mm 2mm;background:#fff;color:var(--ink);}
+/* Encart texte : carton centré au-dessus d'une photo pleine page */
+.page-insert{display:flex;align-items:center;justify-content:center;background:#141414;}
+.ins-bg{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;filter:saturate(.9) contrast(1.02);}
+.ins-scrim{position:absolute;inset:0;background:linear-gradient(180deg,rgba(10,10,10,.5),rgba(10,10,10,.38));}
+.ins-card{position:relative;background:var(--paper);color:var(--ink);max-width:120mm;margin:0 22mm;
+  padding:20mm 22mm;box-shadow:0 12px 44px rgba(0,0,0,.4);text-align:center;}
+.page-insert:not(.has-img){background:var(--paper);} .page-insert:not(.has-img) .ins-card{box-shadow:none;border-top:2px solid var(--accent);border-bottom:2px solid var(--accent);}
+.ins-kicker{font-size:11px;letter-spacing:.34em;text-transform:uppercase;color:var(--accent);font-weight:700;margin-bottom:7mm;}
+.ins-heading{font-size:26px;font-weight:700;line-height:1.1;margin:0 0 8mm;letter-spacing:-.015em;}
+.ins-body{font-size:13.5px;line-height:1.72;color:#33312c;text-align:left;} .ins-body p{margin:0 0 4mm;}
+/* RECTA — intercalaire de l'Ordre (austère, encre rouge sourd) */
+.page-recta{display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;padding:26mm;background:#f4f1ea;color:#171717;}
+.rc-kicker{font-size:11px;letter-spacing:.5em;text-transform:uppercase;color:#9a2222;font-weight:700;margin-bottom:11mm;}
+.rc-quote{font-size:33px;line-height:1.26;font-weight:700;letter-spacing:-.015em;margin:0;max-width:150mm;}
+.rc-quote::before{content:"«\\00a0";color:#9a2222;} .rc-quote::after{content:"\\00a0»";color:#9a2222;}
+.rc-sign{margin-top:13mm;font-size:11px;letter-spacing:.3em;text-transform:uppercase;color:var(--muted);}
+.rc-communique{align-items:flex-start;text-align:left;padding:30mm 32mm;}
+.rc-ref{font-size:12px;letter-spacing:.2em;text-transform:uppercase;color:#9a2222;font-weight:700;margin-bottom:8mm;}
+.rc-body{font-size:15px;line-height:1.72;} .rc-body p{margin:0 0 5mm;}
+.rc-motto{margin-top:6mm;font-style:italic;font-weight:600;font-size:16px;}
+/* PIRATE — intercalaire du désordre (glitch statique, compatible PDF) */
+.page-pirate{position:relative;display:flex;flex-direction:column;justify-content:center;padding:24mm;background:#0a0a0a;color:#fff;overflow:hidden;}
+.pir-noise{position:absolute;inset:0;opacity:.09;mix-blend-mode:screen;background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");}
+.pir-scan{position:absolute;inset:0;pointer-events:none;background:repeating-linear-gradient(0deg,rgba(0,0,0,.34) 0 1px,transparent 1px 3px);}
+.pir-band{position:absolute;top:9mm;left:0;right:0;text-align:center;font-family:monospace;font-size:11px;letter-spacing:.24em;color:var(--pir);padding:2mm 0;border-top:1px solid var(--pir);border-bottom:1px solid var(--pir);background:rgba(0,0,0,.45);}
+.pir-head{position:relative;font-family:monospace;font-weight:800;font-size:66px;letter-spacing:-.02em;color:#fff;}
+.pir-head::before,.pir-head::after{content:attr(data-t);position:absolute;left:0;top:0;width:100%;}
+.pir-head::before{color:#00e5ff;clip-path:inset(0 0 55% 0);transform:translate(-3px,-1px);}
+.pir-head::after{color:#ff003c;clip-path:inset(55% 0 0 0);transform:translate(3px,1px);}
+.pir-num{font-family:monospace;font-size:12px;letter-spacing:.22em;color:var(--pir);margin:4mm 0 9mm;}
+.pir-text{font-family:monospace;font-weight:700;font-size:24px;line-height:1.4;margin:0;max-width:150mm;position:relative;text-shadow:1.6px 0 rgba(255,0,60,.75),-1.6px 0 rgba(0,229,255,.75);}
+.pir-text::after{content:"";position:absolute;left:-4mm;top:38%;width:calc(100% + 8mm);height:5px;background:var(--pir);opacity:.55;mix-blend-mode:screen;}
+.pir-sign{margin-top:11mm;font-family:monospace;font-weight:700;font-size:16px;letter-spacing:.16em;color:var(--pir);text-shadow:1.6px 0 #ff003c,-1.6px 0 #00e5ff;}
 """
 
 
 # ---------------------------------------------------------------------------
 # Thème BRUTALISTE : IBM Plex embarquée, accents orange, grille exposée
 # ---------------------------------------------------------------------------
-_FONT_FILES = {
-    "IBM Plex Mono:400": "ibm-plex-mono-400.woff2",
-    "IBM Plex Mono:600": "ibm-plex-mono-600.woff2",
-    "IBM Plex Sans:400": "ibm-plex-sans-400.woff2",
-    "IBM Plex Sans:700": "ibm-plex-sans-700.woff2",
+# Polices embarquées par thème (family:weight:style -> fichier woff2). Helvetica
+# = Nimbus Sans (clone aux métriques identiques, libre) converti en woff2 : le
+# HTML/PDF reste autonome et rend vraiment en Helvetica, sans dépendre du système.
+_FONT_SETS = {
+    "editorial": {
+        "Helvetica:400:normal": "helvetica-400.woff2",
+        "Helvetica:700:normal": "helvetica-700.woff2",
+        "Helvetica:400:italic": "helvetica-400i.woff2",
+        "Helvetica:700:italic": "helvetica-700i.woff2",
+    },
+    "brutalist": {
+        "IBM Plex Mono:400:normal": "ibm-plex-mono-400.woff2",
+        "IBM Plex Mono:600:normal": "ibm-plex-mono-600.woff2",
+        "IBM Plex Sans:400:normal": "ibm-plex-sans-400.woff2",
+        "IBM Plex Sans:700:normal": "ibm-plex-sans-700.woff2",
+    },
 }
 
 
-def _embed_fonts() -> str:
+def _embed_fonts(theme: str) -> str:
     faces = []
-    for key, fname in _FONT_FILES.items():
-        family, weight = key.split(":")
+    for key, fname in _FONT_SETS.get(theme, {}).items():
+        family, weight, style = key.split(":")
         f = FONTS_DIR / fname
         if not f.is_file():
             continue
         b64 = base64.b64encode(f.read_bytes()).decode("ascii")
         faces.append(
-            f"@font-face{{font-family:'{family}';font-weight:{weight};font-style:normal;"
+            f"@font-face{{font-family:'{family}';font-weight:{weight};font-style:{style};"
             f"font-display:block;src:url(data:font/woff2;base64,{b64}) format('woff2');}}"
         )
     return "".join(faces)
 
 
 CSS_BRUTALIST = """
-:root{--page:210mm;--ink:#141414;--paper:#f2efe9;--muted:#7a756c;--accent:#fe5000;--line:#141414;}
+:root{--page:794px;--ink:#141414;--paper:#f2efe9;--muted:#7a756c;--accent:#fe5000;--line:#141414;}
 *{box-sizing:border-box;} html,body{margin:0;padding:0;background:#2b2b2b;}
 body{font-family:'IBM Plex Sans','Helvetica Neue',Arial,sans-serif;color:var(--ink);}
-@page{size:210mm 210mm;margin:0;}
+@page{size:794px 794px;margin:0;}
 .page{width:var(--page);height:var(--page);position:relative;overflow:hidden;background:var(--paper);
-  page-break-after:always;break-after:page;margin:10mm auto;box-shadow:0 6px 30px rgba(0,0,0,.45);}
+  page-break-after:always;break-after:page;break-inside:avoid;page-break-inside:avoid;
+  margin:10mm auto;box-shadow:0 6px 30px rgba(0,0,0,.45);}
+.page:last-child{break-after:avoid;page-break-after:avoid;}
 @media print{.page{margin:0;box-shadow:none;}}
 .mono{font-family:'IBM Plex Mono',monospace;}
 /* Couverture : titre massif, réglure orange, métadonnées mono */
@@ -484,6 +780,39 @@ figure.fit-contain img{object-fit:contain;background:#e6e2da;}
 .ix-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:3mm;}
 .ix-cell{position:relative;aspect-ratio:1;overflow:hidden;} .ix-cell img{width:100%;height:100%;object-fit:cover;filter:grayscale(1) contrast(1.05);}
 .ix-n{position:absolute;left:0;bottom:0;font-family:'IBM Plex Mono',monospace;font-size:9px;padding:0 2mm;background:var(--accent);color:#141414;}
+/* Encart texte : carton mono, filet orange, au-dessus d'une photo n&b */
+.page-insert{display:flex;align-items:center;justify-content:center;background:#0e0e0e;}
+.ins-bg{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;filter:grayscale(1) contrast(1.08);opacity:.7;}
+.ins-scrim{position:absolute;inset:0;background:rgba(0,0,0,.42);}
+.ins-card{position:relative;background:var(--paper);color:var(--ink);max-width:122mm;margin:0 20mm;
+  padding:18mm 20mm;border-left:5px solid var(--accent);box-shadow:0 12px 44px rgba(0,0,0,.55);text-align:left;}
+.page-insert:not(.has-img){background:var(--paper);} .page-insert:not(.has-img) .ins-card{box-shadow:none;}
+.ins-kicker{font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.24em;text-transform:uppercase;color:var(--accent);font-weight:600;margin-bottom:6mm;}
+.ins-heading{font-size:28px;font-weight:700;line-height:1.04;margin:0 0 7mm;text-transform:uppercase;letter-spacing:-.01em;}
+.ins-body{font-size:13px;line-height:1.62;} .ins-body p{margin:0 0 4mm;}
+/* RECTA — intercalaire de l'Ordre (mono, capitales, filet rouge) */
+.page-recta{display:flex;flex-direction:column;justify-content:center;align-items:flex-start;padding:26mm;background:var(--paper);color:#141414;}
+.rc-kicker{font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.28em;text-transform:uppercase;color:#9a2222;font-weight:600;margin-bottom:9mm;border-bottom:2px solid #9a2222;padding-bottom:3mm;}
+.rc-quote{font-size:40px;line-height:1.08;font-weight:700;letter-spacing:-.02em;text-transform:uppercase;margin:0;max-width:160mm;}
+.rc-quote::after{content:"";display:block;width:34mm;height:4px;background:#9a2222;margin-top:8mm;}
+.rc-sign{font-family:'IBM Plex Mono',monospace;margin-top:12mm;font-size:12px;letter-spacing:.18em;text-transform:uppercase;color:var(--muted);}
+.rc-communique .rc-quote{display:none;}
+.rc-ref{font-family:'IBM Plex Mono',monospace;font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:#9a2222;font-weight:600;margin-bottom:7mm;}
+.rc-body{font-size:15px;line-height:1.66;} .rc-body p{margin:0 0 5mm;}
+.rc-motto{font-family:'IBM Plex Mono',monospace;margin-top:6mm;font-weight:600;font-size:15px;color:#9a2222;text-transform:uppercase;}
+/* PIRATE — intercalaire du désordre (glitch poussé) */
+.page-pirate{position:relative;display:flex;flex-direction:column;justify-content:center;padding:22mm;background:#0a0a0a;color:#fff;overflow:hidden;}
+.pir-noise{position:absolute;inset:0;opacity:.12;mix-blend-mode:screen;background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");}
+.pir-scan{position:absolute;inset:0;pointer-events:none;background:repeating-linear-gradient(0deg,rgba(0,0,0,.4) 0 1px,transparent 1px 3px);}
+.pir-band{position:absolute;top:8mm;left:0;right:0;text-align:center;font-family:'IBM Plex Mono',monospace;font-size:12px;letter-spacing:.26em;color:var(--pir);padding:2mm 0;border-top:2px solid var(--pir);border-bottom:2px solid var(--pir);background:rgba(0,0,0,.5);}
+.pir-head{position:relative;font-family:'IBM Plex Mono',monospace;font-weight:700;font-size:76px;letter-spacing:-.03em;color:#fff;text-transform:uppercase;}
+.pir-head::before,.pir-head::after{content:attr(data-t);position:absolute;left:0;top:0;width:100%;}
+.pir-head::before{color:#00e5ff;clip-path:inset(0 0 52% 0);transform:translate(-4px,-2px);}
+.pir-head::after{color:#ff003c;clip-path:inset(52% 0 0 0);transform:translate(4px,2px);}
+.pir-num{font-family:'IBM Plex Mono',monospace;font-size:12px;letter-spacing:.24em;color:var(--pir);margin:4mm 0 9mm;}
+.pir-text{font-family:'IBM Plex Mono',monospace;font-weight:700;font-size:25px;line-height:1.36;margin:0;max-width:158mm;position:relative;text-transform:uppercase;text-shadow:2px 0 rgba(255,0,60,.8),-2px 0 rgba(0,229,255,.8);}
+.pir-text::after{content:"";position:absolute;left:-5mm;top:44%;width:calc(100% + 10mm);height:6px;background:var(--pir);opacity:.6;mix-blend-mode:screen;}
+.pir-sign{font-family:'IBM Plex Mono',monospace;margin-top:11mm;font-weight:700;font-size:17px;letter-spacing:.16em;color:var(--pir);text-transform:uppercase;text-shadow:2px 0 #ff003c,-2px 0 #00e5ff;}
 """
 
 THEMES = {"editorial": CSS_EDITORIAL, "brutalist": CSS_BRUTALIST}
@@ -494,7 +823,7 @@ def render_model(model: dict) -> tuple[Path, dict]:
     meta = _meta_index()
     theme = model.get("theme", "editorial")
     css = THEMES.get(theme, CSS_EDITORIAL)
-    fonts = _embed_fonts() if theme == "brutalist" else ""
+    fonts = _embed_fonts(theme)
     pages = model.get("pages", [])
     body = "".join(_render_page(pg, meta) for pg in pages)
     html = (f'<!doctype html><html lang="fr"><head><meta charset="utf-8" />'

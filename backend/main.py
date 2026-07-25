@@ -905,6 +905,12 @@ class ArtbookRequest(BaseModel):
     subtitle: str = ""
     chapter_by: str = "category"  # "category" | "none"
     theme: str = "editorial"      # "editorial" | "brutalist"
+    cover_path: str | None = None
+    signature_unit: int = 4       # 4 | 8 | 16
+    use_recta_fill: bool = True
+    use_pirate: bool = True
+    want_index: bool = True
+    want_encarts: bool = True
 
 
 @app.post("/api/artbook")
@@ -913,7 +919,11 @@ def artbook_build(req: ArtbookRequest):
     if not req.paths:
         raise HTTPException(400, "Aucune photo sélectionnée")
     try:
-        model = artbook_module.compose_model(req.paths, req.title, req.subtitle, req.chapter_by, req.theme)
+        model = artbook_module.compose_model(
+            req.paths, req.title, req.subtitle, req.chapter_by, req.theme,
+            cover_path=req.cover_path, signature_unit=req.signature_unit,
+            use_recta_fill=req.use_recta_fill, use_pirate=req.use_pirate,
+            want_index=req.want_index, want_encarts=req.want_encarts)
     except ValueError as e:
         raise HTTPException(400, str(e))
     artbook_module.save_model(model)
@@ -949,6 +959,35 @@ def artbook_render(mid: str, req: ArtbookModel):
     except Exception as e:
         raise HTTPException(400, f"Rendu échoué : {e}")
     return {"id": mid, "url": f"/exports/{out_path.name}", **stats}
+
+
+@app.get("/api/artbook-citation")
+def artbook_citation(kind: str = "recta"):
+    """Tire UNE citation canon (recta/pirate) pour un ajout manuel dans l'éditeur."""
+    import random
+    seed = random.random()
+    if kind == "pirate":
+        pg = artbook_module._pirate_pick(seed, 1)[0]
+    else:
+        pg = artbook_module._recta_pick(seed, 1)[0]
+    pg.pop("auto", None)  # ajout manuel → pas un filler auto (survit au re-calage)
+    return {"page": pg}
+
+
+class PadRequest(BaseModel):
+    model: dict
+    unit: int = 4
+
+
+@app.post("/api/artbook/{mid}/pad")
+def artbook_pad(mid: str, req: PadRequest):
+    """Recale le modèle sur un multiple de `unit` (retire les intercalaires auto,
+    recalcule, réinsère). Renvoie le modèle mis à jour."""
+    model = req.model
+    model["id"] = mid
+    model = artbook_module.repad_model(model, req.unit)
+    artbook_module.save_model(model)
+    return {"id": mid, "model": model, "pages": len(model.get("pages", []))}
 
 
 @app.post("/api/artbook/{mid}/pdf")
