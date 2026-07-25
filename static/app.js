@@ -2001,6 +2001,13 @@ function abPageCard(pg, idx) {
       slot.appendChild(cap);
       slots.appendChild(slot);
     });
+    // « + photo » : ajoute une image à CETTE page (le gabarit suit), jusqu'à 4
+    if (IMG_TPLS.includes(pg.tpl) && (pg.items || []).length < 4) {
+      const add = document.createElement("button");
+      add.className = "ab-slot ab-slot-add"; add.title = "Ajouter une photo à cette page";
+      add.innerHTML = "＋<span>photo</span>"; add.onclick = () => abAddPhotoTo(idx);
+      slots.appendChild(add);
+    }
     card.appendChild(slots);
   } else if (pg.tpl === "cover") {
     const wrap = document.createElement("div");
@@ -2140,8 +2147,28 @@ function abToggleFit(idx, path) { abPush(); const pg = abModel.pages[idx]; pg.fi
   pg.fits[path] = (pg.fits[path] === "contain") ? "cover" : "contain"; abRenderEditor(); }
 function abMovePhoto(idx, si, d) { const it = abModel.pages[idx].items; const j = si + d;
   if (j < 0 || j >= it.length) return; abPush(); [it[si], it[j]] = [it[j], it[si]]; abRenderEditor(); }
-function abRemovePhoto(idx, si) { abPush(); abModel.pages[idx].items.splice(si, 1);
-  if (!abModel.pages[idx].items.length) abModel.pages.splice(idx, 1); abRenderEditor(); }
+// Gabarit auto selon le nombre de photos : 1→pleine, 2→duo, 3→trio, 4+→grille 4.
+const AUTO_TPL = { 1: "full", 2: "duo", 3: "trio", 4: "quad" };
+function abAutoTpl(pg) {
+  if (["full", "duo", "trio", "quad"].includes(pg.tpl))
+    pg.tpl = AUTO_TPL[Math.min((pg.items || []).length, 4)] || "quad";
+}
+function abRemovePhoto(idx, si) {
+  abPush();
+  const pg = abModel.pages[idx];
+  pg.items.splice(si, 1);
+  if (!pg.items.length) abModel.pages.splice(idx, 1);  // plus de photo → page retirée
+  else abAutoTpl(pg);                                   // sinon le gabarit suit
+  abRenderEditor();
+}
+// Ouvre la photothèque ciblée sur une page (ajout d'une photo à CETTE page).
+function abAddPhotoTo(idx) {
+  abTrayMode = "into"; abTrayIntoIdx = idx;
+  abTrayEl.hidden = false;
+  document.getElementById("abTrayTitle").textContent = "Photothèque — clic pour ajouter une photo à cette page";
+  abRenderTray();
+  abTrayEl.scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
 
 // ajout de pages
 document.querySelectorAll("[data-ab-add]").forEach(btn => {
@@ -2217,11 +2244,11 @@ document.getElementById("abPad").addEventListener("click", async () => {
   } finally { btn.disabled = false; btn.textContent = "Ajuster"; }
 });
 
-// Photothèque : ajoute une page pleine (ou change la couverture) depuis la sélection d'origine
-let abTrayMode = "add";
+// Photothèque : ajoute une page pleine, une photo à une page précise, ou change la couverture
+let abTrayMode = "add", abTrayIntoIdx = null;
 const abTrayEl = document.getElementById("abTray");
 function abToggleTray(mode) {
-  abTrayMode = mode || "add";
+  abTrayMode = mode || "add"; abTrayIntoIdx = null;
   const show = abTrayEl.hidden || mode === "cover";
   abTrayEl.hidden = !show;
   document.getElementById("abTrayTitle").textContent = abTrayMode === "cover"
@@ -2239,6 +2266,11 @@ function abRenderTray() {
         abModel.pages[0].hero = p; abModel.coverPath = p;
         abModel.pages.forEach(pg => { if (pg.tpl === "backcover") pg.hero = p; }); // 4e de couv. suit
         abTrayMode = "add"; abTrayEl.hidden = true;
+      }
+      else if (abTrayMode === "into" && abTrayIntoIdx != null) {
+        const pg = abModel.pages[abTrayIntoIdx];
+        if (pg && (pg.items || []).length < 4) { pg.items.push(p); abAutoTpl(pg); } // le gabarit suit
+        abTrayMode = "add"; abTrayIntoIdx = null; abTrayEl.hidden = true;
       }
       else abModel.pages.push({ tpl: "full", items: [p] });
       abRenderEditor();

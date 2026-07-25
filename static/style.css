@@ -859,3 +859,7 @@ textarea { resize: vertical; }
 .lib-acts .btn { padding: 4px 8px; font-size: 11px; }
 .lib-acts .btn.danger { margin-left: auto; }
 .lib-acts .btn.danger:hover { border-color: var(--err); color: var(--err); }
+.ab-slot-add { width: 120px; min-height: 84px; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 2px; border: 2px dashed var(--border); border-radius: 8px; background: var(--bg-2); color: var(--muted); font-size: 22px; cursor: pointer; }
+.ab-slot-add span { font-size: 10px; letter-spacing: .05em; }
+.ab-slot-add:hover { border-color: var(--accent); color: var(--accent); background: var(--bg-1); }
