@@ -18,6 +18,9 @@
   nouveau champ sidecar `hidden_attributes`, mécanisme générique).
 - Détection de Brave en plus de Chromium/Chrome pour l'export PDF.
 - Nouvelle doc `CATALOGUE.md`.
+- Guide complet d'Iris (vue d'ensemble + artbook/catalogue en avant),
+  publié en artifact et exporté en PDF — document hors dépôt, pas de
+  fichier source versionné ici.
 
 ## [0.1.0] — 2026-07-23
 
