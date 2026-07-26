@@ -1,7 +1,8 @@
 # 🌈 Iris
 
 Application web locale de **tri, documentation et recherche d'images** par
-contenu — et de **fabrication de livres photo prêts pour l'imprimeur**. Pensée
+contenu — et de **fabrication d'objets imprimés** : livres photo prêts pour
+l'imprimeur, catalogues, et zines 8 pages sur une feuille pliée. Pensée
 pour traiter de gros volumes rapidement sur GPU : calcul déporté sur la machine
 GPU, affichage dans n'importe quel navigateur du réseau.
 
@@ -149,6 +150,82 @@ prix en masse.
 
 ---
 
+## Faire un zine
+
+Un objet promo qui tient sur **une seule feuille** : pliée trois fois, une coupe
+au pli central, et voilà un livret de 8 pages. Pas de reliure, pas de minimum de
+commande, pas d'imprimeur — une feuille = un zine, tiré chez soi à l'unité.
+
+Les 8 pages, dans l'ordre de lecture :
+
+![Les 8 pages du zine](docs/img/zine-lecture.jpg)
+
+### Le tramage n'est pas un effet de style
+
+Une photocopieuse, comme une laser, ne sait poser **que du noir ou rien**. Envoyer
+une photo en niveaux de gris, c'est laisser le pilote décider : il applique une
+trame quelconque et les demi-teintes partent en bouillie. Iris trame lui-même,
+en 1 bit, avec quatre algorithmes et un usage pour chacun :
+
+![Les quatre trames](docs/img/zine-trames.jpg)
+
+| Trame | Quand l'utiliser |
+|---|---|
+| **Clustered-dot (AM)** | **la photocopie** — les points s'agglomèrent comme sur une presse ; un amas survit là où des pixels isolés se bouchent ou disparaissent |
+| **Atkinson** | ne diffuse que 6/8 de l'erreur : très contrasté, blancs francs, rendu MacPaint |
+| **Floyd–Steinberg** | détail maximal, mais son bruit fin se bouche à la photocopie — à réserver au laser direct ou au risographe |
+| **Seuil** | trait, logo, aplats — pas une photo |
+
+### L'imposition
+
+Pour qu'un livret plié se lise dans l'ordre, les pages doivent être disposées
+dans un ordre précis sur la feuille, et **la rangée du haut imprimée à l'envers** :
+
+```
+Rangée haut (180°) :  p7  p6  p5  p4
+Rangée bas   (0°)  :  p8  p1  p2  p3
+                     (dos)(couv)
+```
+
+![La feuille imposée](docs/img/zine-feuille.jpg)
+
+Iris produit **une seule page HTML** contenant la feuille entière, rangée du haut
+retournée en CSS : aucun post-traitement du PDF, ce que rend le navigateur est
+déjà la feuille à imprimer.
+
+### Réglages
+
+![Options du zine](docs/img/zine-options.jpg)
+
+- **Format** : A4 (zine de poche, pages 74 × 105 mm) ou A3 (A6, 105 × 148 mm).
+- **Pages de texte** au choix : lore canon, descriptions extraites par Iris,
+  citations, ou aucune. Les œuvres portent leur cartel.
+- **QR vectoriel** au dos (SVG, net à n'importe quelle taille) avec site et email
+  — ce qui rend un objet papier mesurable.
+- **Repères de pli et de coupe**, à décocher pour le tirage final.
+
+---
+
+## Ce qui vient d'ailleurs
+
+Deux briques du zine ne sont pas nées ici — elles ont été **portées depuis des
+projets voisins**, où elles avaient déjà fait leurs preuves :
+
+- **[MONO°](https://github.com/obareau/mono)** — atelier d'image 1 bit, 42
+  filtres, dont le README annonce lui-même « built for zines, risograph/offset
+  prep ». Ses quatre trames (clustered-dot d'Ulichney, Atkinson,
+  Floyd–Steinberg, seuil) sont portées en Python dans `backend/dither.py`.
+- **[Recta](https://github.com/obareau/Recta)** — publie un zine de propagande
+  chaque semaine depuis des mois. Sa table d'imposition « fringearts » est
+  reprise dans `backend/zine.py`.
+
+Portées, pas appelées : ce sont quelques dizaines de lignes de données et
+d'algorithme. Une dépendance entre projets (Iris exécutant du TypeScript de
+Recta) aurait coûté plus cher en fragilité que la copie ne coûte en duplication.
+Les fichiers créditent leur source.
+
+---
+
 ## MCP `iris`
 
 Serveur MCP en **lecture seule** (`iris_mcp.py`, stdio) pour qu'un agent puisse
@@ -202,7 +279,7 @@ fourni pour un démarrage automatique.
 ## Pile technique
 
 FastAPI · PyTorch · open_clip (ViT-L/14) · Ultralytics YOLO · Transformers
-(Qwen2-VL-2B) · SQLite · piexif · pikepdf + Ghostscript (prépresse) ·
+(Qwen2-VL-2B) · SQLite · piexif · pikepdf + Ghostscript (prépresse) · segno (QR) ·
 HTML/CSS/JS vanilla, sans build.
 
 Voir `ROADMAP.md` pour la suite et `CHANGELOG.md` pour l'historique.

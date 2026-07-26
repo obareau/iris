@@ -1,5 +1,39 @@
 # Iris — Changelog
 
+## [0.5.0] — 2026-07-26 · Zine & cartels d'œuvre
+
+### Ajouté
+- **Zine 8 pages sur une feuille pliée** — objet promo tiré chez soi à l'unité,
+  sans reliure ni minimum de commande. Formats A4 (pages 74 × 105 mm) et A3
+  (105 × 148 mm), pages de texte au choix (lore canon, descriptions extraites,
+  citations, aucune), QR vectoriel au dos, repères de pli et de coupe
+  décochables.
+- **Tramage 1 bit** (`backend/dither.py`) — clustered-dot, Atkinson,
+  Floyd–Steinberg, seuil. Nécessaire et non décoratif : une photocopieuse ne
+  pose que du noir ou rien ; sans trame choisie, le pilote en applique une
+  quelconque et les demi-teintes tournent en bouillie.
+- **Cartel d'œuvre** — nom, technique, taille, année, pays, rendus dans la
+  convention des catalogues d'exposition. Stockés comme attributs ordinaires du
+  sidecar : ils héritent de l'édition en masse, du masquage, des facettes de la
+  Galerie et de l'écriture EXIF sans une ligne de code en plus.
+- **Verrou d'accès aux dossiers** — `POST /api/folder/check` diagnostique un
+  chemin avant tout job (six cas distingués, remontée au parent existant le plus
+  proche) et une modale explique quoi corriger, avec accès direct au navigateur
+  de dossiers. Posé sur les quatre points d'entrée.
+
+### Réutilisé
+- Trames portées de **MONO°** (`~/DEV/mono`), imposition « fringearts » reprise
+  de **Recta** (`zine-gen.ts`). Portées et créditées plutôt qu'appelées : une
+  dépendance entre projets aurait coûté plus en fragilité que la copie ne coûte
+  en duplication.
+
+### Corrigé
+- Purge automatique des rendus (`exports/` atteignait 629 Mo — 460 Mo libérés,
+  plafond à 40 rendus, les projets jamais touchés).
+- CSS de l'éditeur : trois blocs qui se corrigeaient l'un l'autre fusionnés,
+  taille de miniature déclarée une seule fois. Vérifié par comparaison des
+  styles calculés : aucun écart.
+
 ## [0.4.0] — 2026-07-26 · Thème Catalogue & déploiement permanent
 
 - Déploiement permanent : service systemd (`iris.service`, `Restart=on-failure`)
