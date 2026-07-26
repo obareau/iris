@@ -264,16 +264,40 @@ docker run -p 8800:8800 \
   ghcr.io/obareau/iris
 ```
 
-L'image fait ~880 Mo et tourne sur **processeur** : fonctionnelle partout, mais
-lente. Une image ne peut pas embarquer les trois roues PyTorch (CUDA, ROCm,
-CPU) — il en faudrait trois, de plusieurs Go chacune. Qui a un GPU a une machine
-équipée et lance `./setup.sh`, qui gère les trois cas.
+Puis ouvrir <http://localhost:8800>. Dans Iris, indiquer `/photos` comme dossier
+source : c'est là qu'apparaît le dossier monté ci-dessus.
 
-Le volume sur le cache HuggingFace évite de re-télécharger les ~10 Go de modèles
-à chaque conteneur.
+L'image pèse **~3,7 Go** et est publiée pour **amd64 et arm64** — `docker pull`
+choisit la bonne selon la machine.
 
-Sans GPU, Iris bascule sur le processeur : fonctionnel, mais lent. Les modèles
-(~10 Go) se téléchargent au premier usage.
+Le volume sur le cache HuggingFace n'est pas décoratif : sans lui, les **~10 Go
+de modèles** (CLIP, Qwen2-VL, YOLO) se retéléchargent à chaque nouveau
+conteneur.
+
+#### Ce qui marche, et à quelle vitesse
+
+| Plateforme | État |
+|---|---|
+| **Linux x86** | natif |
+| **Windows** (Docker Desktop / WSL2) | natif |
+| **macOS Apple Silicon** | natif (image arm64) |
+| **macOS Intel** | natif |
+
+⚠️ **L'image tourne sur processeur, jamais sur GPU** — et ce n'est pas un oubli.
+Une image ne peut pas embarquer les trois roues PyTorch (CUDA, ROCm, CPU) : il
+en faudrait trois, de plusieurs Go chacune. Concrètement, l'analyse d'un lot de
+photos se compte en minutes plutôt qu'en secondes.
+
+Pour l'accélération matérielle, installer en natif avec `./setup.sh`, qui
+détecte NVIDIA, AMD ou l'absence de GPU. À savoir avant de choisir :
+
+- **Linux + NVIDIA ou AMD** — Docker sait passer le GPU au conteneur
+  (`--gpus all`, ou `/dev/kfd` + `/dev/dri` pour ROCm) ; l'image ci-dessus ne
+  l'exploite pas, mais une image GPU construite localement le pourrait.
+- **Windows + NVIDIA** — le GPU passe dans le conteneur via WSL2.
+- **macOS** — Docker Desktop **ne sait pas** exposer le GPU Apple à un
+  conteneur, quelle que soit la configuration. Sur Mac, le GPU n'est accessible
+  qu'en installation native.
 
 📄 Voir **[PORTAGE.md](PORTAGE.md)** — dépendances détaillées, install ROCm,
 pièges connus, données à emporter.
