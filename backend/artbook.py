@@ -1359,6 +1359,35 @@ def _css_print_marks(sheet_w: int, sheet_h: int) -> str:
 
 _SECTION_RE = re.compile(r'<section class="page.*?</section>', re.S)
 
+# Un rendu pèse plusieurs Mo (images en base64) et chaque aperçu live en crée un
+# nouveau : sans purge, `exports/` atteint des centaines de Mo en une session.
+# Les rendus sont RÉGÉNÉRABLES depuis les modèles — on ne garde que les derniers.
+KEEP_RENDERS = 40
+_STAMP_RE = re.compile(r"-2026\d{4}-\d{6}")
+
+
+def _purge_renders(keep: int = KEEP_RENDERS) -> int:
+    """Ne conserve que les `keep` rendus les plus récents. Ne touche jamais aux
+    modèles (`artbook-models/`, les projets eux-mêmes) ni à autre chose que des
+    fichiers `artbook-*-<horodatage>.(html|pdf)` produits par le moteur."""
+    try:
+        files = [p for p in EXPORTS_DIR.iterdir()
+                 if p.is_file() and p.suffix in (".html", ".pdf")
+                 and p.name.startswith("artbook-") and _STAMP_RE.search(p.name)]
+    except OSError:
+        return 0
+    if len(files) <= keep:
+        return 0
+    files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+    n = 0
+    for p in files[keep:]:
+        try:
+            p.unlink()
+            n += 1
+        except OSError:
+            pass
+    return n
+
 
 def _wrap_sheets(body: str, title: str) -> str:
     """Emballe chaque page dans une feuille avec ses équerres de coupe.
@@ -1402,6 +1431,7 @@ def render_model(model: dict, print_mode: bool = False, marks: bool = False) -> 
             f'<body>{body}</body></html>')
     out = EXPORTS_DIR / f"artbook-{_slugify(title)}{suffix}-{datetime.now():%Y%m%d-%H%M%S}.html"
     out.write_text(html, encoding="utf-8")
+    _purge_renders()
     n_photos = sum(len(p.get("items", [])) for p in pages
                    if p.get("tpl") in IMAGE_TPLS or p.get("tpl") in ("photo-text", "product-list"))
     return out, {"pages": len(pages), "photos": n_photos}

@@ -1131,15 +1131,19 @@ textarea { resize: vertical; }
 }
 .ab-editor .ab-preview-head #abPreviewStatus { color: var(--brass); }
 
-/* ── Correctif grille des cartes : en-tête en bandeau, miniature à gauche ── */
+/* ── Carte de page : bandeau en haut, miniature à gauche, réglages à droite ──
+   La miniature est carrée comme la vraie page (210×210) ; sa taille est
+   déclarée UNE fois dans --mini, tout le reste s'y accroche. */
+.ab-editor { --mini: 124px; }
 .ab-editor .ab-page {
   position: relative;
-  grid-template-columns: 148px 1fr;
+  grid-template-columns: var(--mini) 1fr;
   grid-auto-rows: min-content;
   column-gap: 16px; row-gap: 0;
-  padding: 10px 14px 12px;
+  padding: 9px 13px 11px;
   border-left-width: 3px;
 }
+.ab-editor .ab-pages { gap: 7px; }
 /* bandeau : poignée · n° · type · actions */
 .ab-editor .ab-page-head {
   grid-column: 1 / -1; grid-row: 1;
@@ -1150,46 +1154,35 @@ textarea { resize: vertical; }
 .ab-editor .ab-page-num { writing-mode: horizontal-tb; letter-spacing: .1em; }
 .ab-editor .ab-page-type { position: static; }
 .ab-editor .ab-page-head .sp { display: block; flex: 1; }
-/* miniature + contenu sur la ligne 2 */
+/* colonne 1 (ligne 2) : la miniature, quelle que soit sa nature */
 .ab-editor .ab-slots,
 .ab-editor .ab-page:not([data-kind="photo"])::before,
-.ab-editor .ab-cover-thumb { grid-column: 1; grid-row: 2; margin-top: 10px; }
+.ab-editor .ab-cover-thumb {
+  grid-column: 1; grid-row: 2; margin-top: 10px; width: var(--mini);
+}
+.ab-editor .ab-cover-thumb { height: var(--mini); object-fit: cover; }
+.ab-editor .ab-page:not([data-kind="photo"])::before { font-size: 26px; }
+.ab-editor .ab-page:has(.ab-tpls) .ab-slots { grid-row: 2 / span 2; }
+/* colonne 2 : les réglages */
 .ab-editor .ab-tpls, .ab-editor .ab-fields, .ab-editor .ab-hint, .ab-editor .ab-cover-btn {
   grid-column: 2; grid-row: auto; margin-top: 10px;
 }
 .ab-editor .ab-tpls { grid-row: 2; margin-bottom: 0; }
-.ab-editor .ab-page:has(.ab-tpls) .ab-slots { grid-row: 2 / span 2; }
+.ab-editor .ab-fields { align-self: start; }
+.ab-editor .ab-fields textarea { min-height: 54px; }
 /* pages à vignette réelle : pas de pseudo-miniature en doublon */
 .ab-editor .ab-page[data-tpl="cover"]::before,
 .ab-editor .ab-page[data-tpl="backcover"]::before,
 .ab-editor .ab-page[data-tpl="insert"]::before { content: none; display: none; }
-.ab-editor .ab-cover-thumb { width: 148px; height: 148px; object-fit: cover; }
-/* champs : ne pas s'étirer inutilement en hauteur */
-.ab-editor .ab-fields { align-self: start; }
-.ab-editor .ab-fields textarea { min-height: 54px; }
-
-/* Couverture : son wrapper est un seul enfant de grille → le re-scinder */
+/* la couverture emballe ses champs dans un seul div → re-scindé en grille */
 .ab-editor .ab-page[data-tpl="cover"] > div {
-  grid-column: 1 / -1; grid-row: 2;
-  display: grid; grid-template-columns: 148px 1fr; gap: 16px; align-items: start; margin-top: 10px;
+  grid-column: 1 / -1; grid-row: 2; margin-top: 10px;
+  display: grid; grid-template-columns: var(--mini) 1fr; gap: 16px; align-items: start;
 }
 .ab-editor .ab-page[data-tpl="cover"] .ab-cover-thumb { grid-column: 1; grid-row: 1 / span 2; margin-top: 0; }
 .ab-editor .ab-page[data-tpl="cover"] .ab-fields { grid-column: 2; grid-row: 1; margin-top: 0; }
 .ab-editor .ab-page[data-tpl="cover"] .ab-cover-btn { grid-column: 2; grid-row: 2; margin-top: 8px; }
-/* Densité : la miniature reste lisible, la carte se resserre */
-.ab-editor .ab-slots,
-.ab-editor .ab-page:not([data-kind="photo"])::before,
-.ab-editor .ab-cover-thumb,
-.ab-editor .ab-page[data-tpl="cover"] > div { --mini: 124px; }
-.ab-editor .ab-slots,
-.ab-editor .ab-page:not([data-kind="photo"])::before,
-.ab-editor .ab-cover-thumb { width: 124px; }
-.ab-editor .ab-cover-thumb { height: 124px; }
-.ab-editor .ab-page,
-.ab-editor .ab-page[data-tpl="cover"] > div { grid-template-columns: 124px 1fr; }
-.ab-editor .ab-page:not([data-kind="photo"])::before { font-size: 26px; }
-.ab-editor .ab-pages { gap: 7px; }
-.ab-editor .ab-page { padding: 9px 13px 11px; }
+/* « + photo » : hors de la miniature, dans la barre de gabarits */
 .ab-editor .ab-add-photo { border-style: dashed; border-color: var(--edge-2); color: var(--dim); margin-left: 4px; }
 .ab-editor .ab-add-photo:hover { border-color: var(--brass); color: var(--brass); border-style: solid; }
 
