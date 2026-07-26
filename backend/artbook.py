@@ -40,6 +40,21 @@ HERO_MAX = 1600
 GRID_MAX = 1000
 JPEG_Q = 86
 
+# ── Fichier imprimeur ──────────────────────────────────────────────────────
+# Un imprimeur massicote dans la pile : le trait de coupe n'est jamais parfait.
+# On lui donne donc plus grand que le format fini — l'image « saigne » au-delà
+# de la coupe (fond perdu), et des traits de coupe marquent où couper.
+#   feuille = format fini 210 + 2×3 mm de fond perdu + 2×5 mm pour les traits
+# Tout en pixels entiers (96 dpi) : un arrondi sub-pixel crée une page fantôme.
+TRIM_PX = 794    # 210 mm — format fini
+BLEED_PX = 11    # 3 mm   — fond perdu
+MARKS_PX = 19    # 5 mm   — marge des traits de coupe
+PAGE_PX = TRIM_PX + 2 * BLEED_PX          # 816 — le dessin, débordant
+SHEET_PX = PAGE_PX + 2 * MARKS_PX         # 854 — la feuille livrée
+PRINT_HERO_MAX = 2600   # ~300 dpi sur 216 mm (1600 px n'en fait que ~190)
+PRINT_GRID_MAX = 1700
+_PRINT = False          # armé le temps d'un rendu imprimeur
+
 # Gabarits image et nombre de photos consommées.
 SLOTS = {"full": 1, "duo": 2, "trio": 3, "quad": 4}
 IMAGE_TPLS = set(SLOTS)
@@ -98,10 +113,14 @@ def _caption(item: dict) -> str:
 
 
 def _data_uri(path: Path, max_px: int) -> str:
+    # en mode imprimeur on remonte la définition (l'écran se contente de 1600 px,
+    # le papier demande ~300 dpi) et on desserre la compression JPEG
+    if _PRINT:
+        max_px = PRINT_HERO_MAX if max_px >= HERO_MAX else PRINT_GRID_MAX
     img = ImageOps.exif_transpose(Image.open(path)).convert("RGB")
     img.thumbnail((max_px, max_px), Image.LANCZOS)
     buf = io.BytesIO()
-    img.save(buf, format="JPEG", quality=JPEG_Q, optimize=True)
+    img.save(buf, format="JPEG", quality=94 if _PRINT else JPEG_Q, optimize=True)
     return "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode("ascii")
 
 
@@ -923,19 +942,71 @@ figure.fit-contain img{object-fit:contain;background:#e6e2da;}
 THEMES = {"editorial": CSS_EDITORIAL, "brutalist": CSS_BRUTALIST}
 
 
-def render_model(model: dict) -> tuple[Path, dict]:
+# Chaque page devient une FEUILLE : le dessin (agrandi au fond perdu) posé au
+# centre, et les quatre équerres de coupe qui marquent le format fini.
+CSS_PRINT = f"""
+@page{{size:{SHEET_PX}px {SHEET_PX}px;margin:0;}}
+html,body{{background:#fff;margin:0;padding:0;}}
+.sheet{{position:relative;width:{SHEET_PX}px;height:{SHEET_PX}px;background:#fff;overflow:hidden;
+  display:flex;align-items:center;justify-content:center;margin:0;
+  page-break-after:always;break-after:page;break-inside:avoid;page-break-inside:avoid;}}
+.sheet:last-child{{break-after:avoid;page-break-after:avoid;}}
+.sheet .page{{width:{PAGE_PX}px;height:{PAGE_PX}px;margin:0;box-shadow:none;border-radius:0;}}
+/* équerres de coupe : posées sur le format fini, tracées dans la marge */
+.marks i{{position:absolute;width:0;height:0;}}
+.marks i::before,.marks i::after{{content:"";position:absolute;background:#000;}}
+.marks i::before{{height:.5px;width:13px;}}
+.marks i::after{{width:.5px;height:13px;}}
+.marks .tl{{left:{MARKS_PX + BLEED_PX}px;top:{MARKS_PX + BLEED_PX}px;}}
+.marks .tl::before{{left:-16px;top:0;}}      .marks .tl::after{{top:-16px;left:0;}}
+.marks .tr{{right:{MARKS_PX + BLEED_PX}px;top:{MARKS_PX + BLEED_PX}px;}}
+.marks .tr::before{{right:-16px;top:0;}}     .marks .tr::after{{top:-16px;right:0;}}
+.marks .bl{{left:{MARKS_PX + BLEED_PX}px;bottom:{MARKS_PX + BLEED_PX}px;}}
+.marks .bl::before{{left:-16px;bottom:0;}}   .marks .bl::after{{bottom:-16px;left:0;}}
+.marks .br{{right:{MARKS_PX + BLEED_PX}px;bottom:{MARKS_PX + BLEED_PX}px;}}
+.marks .br::before{{right:-16px;bottom:0;}}  .marks .br::after{{bottom:-16px;right:0;}}
+.folio{{position:absolute;left:0;right:0;bottom:5px;text-align:center;font:9px/1 monospace;color:#888;}}
+"""
+
+_SECTION_RE = re.compile(r'<section class="page.*?</section>', re.S)
+
+
+def _wrap_sheets(body: str, title: str) -> str:
+    """Emballe chaque page dans une feuille avec ses équerres de coupe.
+    (les <section class="page"> ne sont jamais imbriquées → découpe sûre)"""
+    out = []
+    for i, sec in enumerate(_SECTION_RE.findall(body), 1):
+        out.append(
+            f'<div class="sheet">{sec}'
+            f'<div class="marks"><i class="tl"></i><i class="tr"></i><i class="bl"></i><i class="br"></i></div>'
+            f'<div class="folio">{_escape(title)} — page {i}</div></div>'
+        )
+    return "".join(out)
+
+
+def render_model(model: dict, print_mode: bool = False) -> tuple[Path, dict]:
+    global _PRINT
     EXPORTS_DIR.mkdir(parents=True, exist_ok=True)
     meta = _meta_index()
     theme = model.get("theme", "editorial")
     css = THEMES.get(theme, CSS_EDITORIAL)
     fonts = _embed_fonts(theme)
     pages = model.get("pages", [])
-    body = "".join(_render_page(pg, meta) for pg in pages)
+    title = model.get("title", "Artbook")
+    _PRINT = print_mode
+    try:
+        body = "".join(_render_page(pg, meta) for pg in pages)
+    finally:
+        _PRINT = False
+    if print_mode:
+        body = _wrap_sheets(body, title)
+        css += CSS_PRINT
     html = (f'<!doctype html><html lang="fr"><head><meta charset="utf-8" />'
-            f'<title>{_escape(model.get("title","Artbook"))}</title>'
+            f'<title>{_escape(title)}</title>'
             f'<style>{fonts}{css}</style></head>'
             f'<body>{body}</body></html>')
-    out = EXPORTS_DIR / f"artbook-{_slugify(model.get('title','artbook'))}-{datetime.now():%Y%m%d-%H%M%S}.html"
+    suffix = "-imprimeur" if print_mode else ""
+    out = EXPORTS_DIR / f"artbook-{_slugify(title)}{suffix}-{datetime.now():%Y%m%d-%H%M%S}.html"
     out.write_text(html, encoding="utf-8")
     n_photos = sum(len(p.get("items", [])) for p in pages if p.get("tpl") in IMAGE_TPLS or p.get("tpl") == "photo-text")
     return out, {"pages": len(pages), "photos": n_photos}
@@ -945,9 +1016,10 @@ import shutil
 import subprocess
 
 
-def render_pdf(model: dict) -> Path:
-    """Rend le modèle en HTML puis en PDF via chromium headless (respecte @page)."""
-    html_path, _ = render_model(model)
+def render_pdf(model: dict, print_mode: bool = False) -> Path:
+    """Rend le modèle en HTML puis en PDF via chromium headless (respecte @page).
+    print_mode : fichier imprimeur (fonds perdus + traits de coupe, haute déf)."""
+    html_path, _ = render_model(model, print_mode=print_mode)
     pdf_path = html_path.with_suffix(".pdf")
     chrome = shutil.which("google-chrome") or shutil.which("google-chrome-stable") \
         or shutil.which("chromium") or shutil.which("chromium-browser")
@@ -957,7 +1029,7 @@ def render_pdf(model: dict) -> Path:
         [chrome, "--headless=new", "--disable-gpu", "--no-sandbox",
          f"--print-to-pdf={pdf_path}", "--no-pdf-header-footer",
          "--print-to-pdf-no-header", f"file://{html_path}"],
-        check=True, capture_output=True, timeout=180,
+        check=True, capture_output=True, timeout=600,
     )
     if not pdf_path.is_file():
         raise RuntimeError("chromium n'a pas produit de PDF")

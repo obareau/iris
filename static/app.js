@@ -2449,11 +2449,11 @@ document.getElementById("abRegen").addEventListener("click", async () => {
 });
 
 // export PDF (chromium headless côté serveur)
-document.getElementById("abPdf").addEventListener("click", async () => {
-  const btn = document.getElementById("abPdf");
-  btn.disabled = true; btn.textContent = "PDF en cours…";
+async function abExportPdf(btn, printMode) {
+  const label = btn.textContent;
+  btn.disabled = true; btn.textContent = printMode ? "Fichier imprimeur…" : "PDF en cours…";
   try {
-    const res = await fetch(`/api/artbook/${abId}/pdf`, {
+    const res = await fetch(`/api/artbook/${abId}/pdf?print_mode=${printMode ? "true" : "false"}`, {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ model: abModel }),
     });
@@ -2461,9 +2461,11 @@ document.getElementById("abPdf").addEventListener("click", async () => {
     const data = await res.json();
     window.open(data.url, "_blank");
   } finally {
-    btn.disabled = false; btn.textContent = "Export PDF ⤓";
+    btn.disabled = false; btn.textContent = label;
   }
-});
+}
+document.getElementById("abPdf").addEventListener("click", (e) => abExportPdf(e.currentTarget, false));
+document.getElementById("abPdfPrint").addEventListener("click", (e) => abExportPdf(e.currentTarget, true));
 
 galBulkDeleteBtn.addEventListener("click", async () => {
   const paths = [...galSelectedPaths];
