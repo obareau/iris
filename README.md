@@ -143,6 +143,10 @@ vraies couleurs ne sont pas touchées.
 📄 Voir **[IMPRESSION.md](IMPRESSION.md)** — relevé des specs chez Pixartprinting,
 Lulu, Blurb et CEWE, et la marche à suivre.
 
+📄 Voir **[CATALOGUE.md](CATALOGUE.md)** — thème *Catalogue* (A4, liste de
+fiches produit), import d'un catalogue `.odt` existant, édition/masquage des
+prix en masse.
+
 ---
 
 ## MCP `iris`

@@ -73,6 +73,7 @@ def list_gallery() -> list[dict]:
                 "category_slug": sidecar.get("category_slug"),
                 "details": sidecar.get("details"),
                 "attributes": sidecar.get("attributes", []),
+                "hidden_attributes": sidecar.get("hidden_attributes", []),
                 "applied_at": sidecar.get("applied_at"),
                 "renegat_posted": sidecar.get("renegat_posted"),
                 "has_sidecar": bool(sidecar),
@@ -136,6 +137,7 @@ def get_item(path: str) -> dict:
         "category_slug": sidecar.get("category_slug"),
         "details": sidecar.get("details"),
         "attributes": sidecar.get("attributes", []),
+        "hidden_attributes": sidecar.get("hidden_attributes", []),
         "rating": sidecar.get("rating", 0),
         "aesthetic_score": sidecar.get("aesthetic_score"),
         "canon_faction": sidecar.get("canon_faction"),
@@ -194,6 +196,59 @@ def set_rating(image_path: str, rating: int) -> None:
     existing["rating"] = rating
     _write_sidecar(path, existing)
     exif_writer.write_exif(path, existing)
+
+
+def set_attribute_bulk(paths: list[str], label: str, value: str) -> int:
+    """Fixe (ou crée) un attribut à la même valeur sur plusieurs photos d'un
+    coup — pensé pour aligner un prix en masse (solde, arrondi de gamme)
+    plutôt que de rouvrir chaque fiche. Renvoie le nombre de photos touchées."""
+    label = label.strip()
+    if not label:
+        raise ValueError("Label d'attribut manquant")
+    n = 0
+    for image_path in paths:
+        path = Path(image_path)
+        if not path.is_file():
+            continue
+        existing = _read_sidecar(path)
+        attrs = existing.get("attributes") or []
+        for a in attrs:
+            if isinstance(a, dict) and (a.get("label") or "").strip().lower() == label.lower():
+                a["value"] = value
+                break
+        else:
+            attrs.append({"label": label, "value": value})
+        existing["attributes"] = attrs
+        _write_sidecar(path, existing)
+        exif_writer.write_exif(path, existing)
+        n += 1
+    return n
+
+
+def set_attribute_hidden_bulk(paths: list[str], label: str, hidden: bool) -> int:
+    """Masque/révèle un attribut (ex. Prix) sans effacer sa valeur — utile
+    pour publier une version "sans prix" d'un catalogue sans perdre les
+    montants. `_attr()` (artbook.py) ignore un attribut tant qu'il est
+    masqué ; le décocher le fait réapparaître, valeur intacte. Renvoie le
+    nombre de photos touchées."""
+    label_l = label.strip().lower()
+    if not label_l:
+        raise ValueError("Label d'attribut manquant")
+    n = 0
+    for image_path in paths:
+        path = Path(image_path)
+        if not path.is_file():
+            continue
+        existing = _read_sidecar(path)
+        current = {(h or "").strip().lower() for h in (existing.get("hidden_attributes") or [])}
+        if hidden:
+            current.add(label_l)
+        else:
+            current.discard(label_l)
+        existing["hidden_attributes"] = sorted(current)
+        _write_sidecar(path, existing)
+        n += 1
+    return n
 
 
 def set_character_name(image_path: str, name: str) -> None:

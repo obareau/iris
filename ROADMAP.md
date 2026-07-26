@@ -98,3 +98,58 @@ Suivi Argus.
       2026-07-23.
 
 Roadmap initiale (Phases 1-3) intégralement traitée.
+
+## Phase 4 — Catalogue produits (2026-07-26)
+
+- [x] **Déploiement permanent** — service systemd `iris.service` (installé,
+      `enable`d, `Restart=on-failure`) + watchdog HTTP (`watchdog.sh` +
+      `iris-watchdog.timer`, toutes les 30 s, `systemctl restart` si
+      injoignable) pour couvrir aussi un plantage silencieux/deadlock (pas
+      seulement un process qui meurt). Testé en réel : process gelé
+      (`SIGSTOP`) détecté et relancé automatiquement.
+- [x] **Chapitres par taille + grille tarifaire** — nouveau mode
+      `chapter_by="size"` dans `compose_model()` (bandes de surface cm²,
+      indépendant de la catégorie sémantique CLIP) et nouveau gabarit
+      `price-grid` (Catégorie / Dimensions / Prix le plus fréquent, hors
+      pièces à 0,00 € = vendues/indisponibles).
+- [x] **Thème "Catalogue"** — A4 portrait (au lieu du carré 210×210 mm des
+      autres thèmes), Noto Serif embarquée, vert `#2e5e4e`, calqué sur un
+      catalogue produits `.odt` de référence (couleurs extraites de
+      `styles.xml`/`content.xml`, mise en page comparée visuellement via
+      export PDF LibreOffice headless). Format de page généralisé par thème
+      (`THEME_TRIM_MM`) y compris pour l'export imprimeur (fond
+      perdu/traits de coupe, jusque-là hardcodé carré).
+- [x] **Gabarit `product-list`** — liste compacte de fiches produit
+      (jusqu'à 5/page, image en `object-fit:contain` jamais rognée — la
+      majorité des photos sources sont en format paysage ou des photos
+      composites de plusieurs pièces). Remplace le gabarit plein-page pour
+      ce thème. Hauteur de ligne fixe (46 mm) plutôt qu'un `flex:1` qui
+      étirait la ligne (et l'image) sur toute la page quand il y avait peu
+      de produits sur une page.
+- [x] **`import_catalogue.py`** — importe un catalogue LibreOffice `.odt`
+      (même structure que le document de référence : un tableau par
+      produit, image + nom + Référence + Prix + description avec la
+      taille) dans la bibliothèque Iris, sidecar JSON natif (`attributes`:
+      Nom/Référence/Taille/Prix). Ignore automatiquement les blocs gabarits
+      vides du document (pas d'image réelle = pas de produit). Testé sur le
+      catalogue réel : 235 produits importés (186 cartes postales, 42
+      dessins, 7 aquarelles).
+- [x] **Édition/masquage des prix en masse** — barre d'outils Galerie :
+      champ Prix + "Appliquer le prix" (fixe la valeur sur la sélection),
+      "Masquer les prix"/"Afficher les prix" (réversible, la valeur reste
+      en sidecar — nouveau champ `hidden_attributes`, mécanisme générique
+      pas limité au prix). `_attr()`/`_spec_for()` (artbook.py) l'ignorent
+      tant qu'il est masqué. Deux endpoints :
+      `/api/gallery/attribute/bulk`, `/api/gallery/attribute/hide`.
+- [x] **CATALOGUE.md** — doc complète (thème, structure par taille, import
+      `.odt`, édition/masquage de prix, marche à suivre de bout en bout),
+      liée depuis README.md.
+
+### Reste ouvert
+
+- [ ] Génération du catalogue complet (235 photos) dans le thème Catalogue
+      — validé seulement sur des échantillons de test (8-12 pages) jusqu'ici.
+- [ ] Export imprimeur (CMJN/traits de coupe) du thème Catalogue en A4 —
+      la génération de dimensions est généralisée (`_print_dims`) mais pas
+      testée avec un vrai fichier imprimeur A4 (seulement le rendu PDF
+      standard, non fond-perdu).

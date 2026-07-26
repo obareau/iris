@@ -1070,10 +1070,13 @@ function galRenderInspector(item) {
 
   if (item.attributes && item.attributes.length) {
     galInspAttrs.innerHTML = "";
+    const hidden = new Set((item.hidden_attributes || []).map(h => h.toLowerCase()));
     for (const a of item.attributes) {
+      const isHidden = hidden.has((a.label || "").toLowerCase());
       const row = document.createElement("div");
       row.className = "kv-row";
-      row.innerHTML = `<span class="kv-key">${a.label}</span><span class="kv-val">${a.value}</span>`;
+      const suffix = isHidden ? ' <span style="opacity:.6">(masqué — absent du livre)</span>' : "";
+      row.innerHTML = `<span class="kv-key">${a.label}</span><span class="kv-val"${isHidden ? ' style="opacity:.5;text-decoration:line-through"' : ""}>${a.value}</span>${suffix}`;
       galInspAttrs.appendChild(row);
     }
     galInspAttrSection.hidden = false;
@@ -1645,15 +1648,19 @@ function wizStep1() {
   return `<div class="wiz-label">Style graphique</div><div class="wiz-themes">
       ${card("editorial", "Éditorial", "Helvetica, beau livre, encarts papier centrés")}
       ${card("brutalist", "Brutaliste", "IBM Plex mono, accents orange, fiches techniques, N&B contrasté")}
+      ${card("catalogue", "Catalogue", "A4 portrait, serif vert, une fiche produit par photo (nom/référence/taille/prix)")}
     </div>`;
 }
 function wizStep2() {
   const s = wizState;
   const tog = (k, name, desc) => `<label class="wiz-tog"><input type="checkbox" data-tog="${k}" ${s[k] ? "checked" : ""}>
       <span><strong>${name}</strong><small>${desc}</small></span></label>`;
+  const chap = (v, name, desc) => `<label class="wiz-tog"><input type="radio" name="wizChapterBy" data-chapterby="${v}" ${s.chapter_by === v ? "checked" : ""}>
+      <span><strong>${name}</strong><small>${desc}</small></span></label>`;
   return `<div class="wiz-label">Structure du livre</div>
-    <label class="wiz-tog"><input type="checkbox" id="wizChap" ${s.chapter_by === "category" ? "checked" : ""}>
-      <span><strong>Chapitres par catégorie</strong><small>regroupe et titre chaque catégorie ; sinon un seul flux continu</small></span></label>
+    ${chap("none", "Flux continu", "pas de découpage en chapitres")}
+    ${chap("category", "Chapitres par catégorie", "regroupe et titre chaque catégorie sémantique (personnes, paysages…)")}
+    ${chap("size", "Chapitres par taille", "regroupe par format physique de l'œuvre (attribut Taille) et ajoute une page grille tarifaire")}
     ${tog("wantEncarts", "Encarts texte auto", "un carton de texte au milieu des doubles pages, par chapitre fourni")}
     ${tog("wantIndex", "Index de fin", "planche de vignettes numérotées en dernière page")}
     ${tog("wantMatter", "Pages liminaires", "page de garde (faux-titre), dédicace, et quatrième de couverture")}`;
@@ -1680,7 +1687,8 @@ function wizStep4() {
       ${li("Photos", s.paths.length)}
       ${li("Couverture", s.coverPath ? "choisie" : "auto (meilleur score)")}
       ${li("Style", s.theme === "brutalist" ? "Brutaliste" : "Éditorial")}
-      ${li("Structure", (s.chapter_by === "category" ? "chapitres par catégorie" : "flux continu")
+      ${li("Structure", (s.chapter_by === "category" ? "chapitres par catégorie"
+          : s.chapter_by === "size" ? "chapitres par taille + grille tarifaire" : "flux continu")
         + (s.wantEncarts ? " · encarts" : "") + (s.wantIndex ? " · index" : "") + (s.wantMatter ? " · liminaires" : ""))}
       ${li("Reliure", (s.targetPages ? s.targetPages + " p. visées · " : "min · ") + "cahier " + s.signatureUnit
         + (s.useRectaFill ? " · Recta" : "") + (s.usePirate ? " · pirate" : ""))}
@@ -1700,7 +1708,7 @@ const wizBind = {
     wizBody.querySelectorAll("[data-theme]").forEach(b => b.onclick = () => { wizState.theme = b.dataset.theme; wizRender(); });
   },
   2() {
-    wizBody.querySelector("#wizChap").onchange = e => wizState.chapter_by = e.target.checked ? "category" : "none";
+    wizBody.querySelectorAll("[data-chapterby]").forEach(r => r.onchange = e => { wizState.chapter_by = e.target.dataset.chapterby; });
     wizBody.querySelectorAll("[data-tog]").forEach(c => c.onchange = e => wizState[c.dataset.tog] = e.target.checked);
   },
   3() {
@@ -2655,6 +2663,57 @@ galBulkCanonBtn.addEventListener("click", async () => {
   }
   galCanonPoll();
 });
+
+// ---------- Prix en masse (édition / masquage) ----------
+const galBulkPriceInput = $("galBulkPriceInput");
+const galBulkPriceBtn = $("galBulkPriceBtn");
+const galBulkPriceHideBtn = $("galBulkPriceHideBtn");
+const galBulkPriceShowBtn = $("galBulkPriceShowBtn");
+
+async function galRefreshSelectedItems() {
+  const paths = [...galSelectedPaths];
+  const items = await Promise.all(paths.map(p =>
+    fetch("/api/gallery/item?path=" + encodeURIComponent(p)).then(r => r.ok ? r.json() : null)
+  ));
+  for (const it of items) {
+    if (!it) continue;
+    Object.assign(galItemsByPath.get(it.path), it);
+  }
+  if (galSelectedPath && paths.includes(galSelectedPath)) {
+    galRenderInspector(galItemsByPath.get(galSelectedPath));
+  }
+}
+
+galBulkPriceBtn.addEventListener("click", async () => {
+  const paths = [...galSelectedPaths];
+  if (!paths.length) return;
+  const value = galBulkPriceInput.value.trim();
+  if (!value) { alert("Entre un prix (ex : 25,00 €)"); return; }
+  galBulkPriceBtn.disabled = true;
+  const res = await fetch("/api/gallery/attribute/bulk", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ paths, label: "Prix", value }),
+  });
+  galBulkPriceBtn.disabled = false;
+  if (!res.ok) { alert("Erreur : " + (await res.text())); return; }
+  await galRefreshSelectedItems();
+});
+
+async function galSetPriceHidden(hidden) {
+  const paths = [...galSelectedPaths];
+  if (!paths.length) return;
+  const btn = hidden ? galBulkPriceHideBtn : galBulkPriceShowBtn;
+  btn.disabled = true;
+  const res = await fetch("/api/gallery/attribute/hide", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ paths, label: "Prix", hidden }),
+  });
+  btn.disabled = false;
+  if (!res.ok) { alert("Erreur : " + (await res.text())); return; }
+  await galRefreshSelectedItems();
+}
+galBulkPriceHideBtn.addEventListener("click", () => galSetPriceHidden(true));
+galBulkPriceShowBtn.addEventListener("click", () => galSetPriceHidden(false));
 
 // ---------- Doublons / images similaires ----------
 const dedupeLibSummary = $("dedupeLibSummary");

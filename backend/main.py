@@ -144,6 +144,18 @@ class CharacterRequest(BaseModel):
     character_name: str
 
 
+class AttributeBulkRequest(BaseModel):
+    paths: list[str]
+    label: str
+    value: str = ""
+
+
+class AttributeHiddenBulkRequest(BaseModel):
+    paths: list[str]
+    label: str
+    hidden: bool = True
+
+
 class SearchRequest(BaseModel):
     query: str
     category: str | None = None
@@ -706,6 +718,32 @@ def gallery_character(req: CharacterRequest):
     return {"path": req.path, "character_name": req.character_name.strip() or None}
 
 
+@app.post("/api/gallery/attribute/bulk")
+def gallery_attribute_bulk(req: AttributeBulkRequest):
+    """Fixe un attribut (ex. Prix) à la même valeur sur plusieurs photos —
+    solde, arrondi de gamme, correction en masse après import."""
+    if not req.paths:
+        raise HTTPException(400, "Rien à modifier")
+    try:
+        n = gallery_module.set_attribute_bulk(req.paths, req.label, req.value)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"updated": n, "label": req.label, "value": req.value}
+
+
+@app.post("/api/gallery/attribute/hide")
+def gallery_attribute_hide(req: AttributeHiddenBulkRequest):
+    """Masque/révèle un attribut (ex. Prix) sur plusieurs photos, sans
+    effacer sa valeur — pour publier une version sans prix d'un catalogue."""
+    if not req.paths:
+        raise HTTPException(400, "Rien à modifier")
+    try:
+        n = gallery_module.set_attribute_hidden_bulk(req.paths, req.label, req.hidden)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"updated": n, "label": req.label, "hidden": req.hidden}
+
+
 @app.get("/api/gallery/item")
 def gallery_item(path: str):
     try:
@@ -903,7 +941,7 @@ class ArtbookRequest(BaseModel):
     paths: list[str]
     title: str = "Iris Artbook"
     subtitle: str = ""
-    chapter_by: str = "category"  # "category" | "none"
+    chapter_by: str = "category"  # "category" | "size" | "none"
     theme: str = "editorial"      # "editorial" | "brutalist"
     cover_path: str | None = None
     signature_unit: int = 4       # 4 | 8 | 16

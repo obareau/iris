@@ -24,6 +24,7 @@ import random
 import re
 import unicodedata
 import uuid
+from collections import Counter
 from datetime import datetime
 from pathlib import Path
 
@@ -46,19 +47,35 @@ JPEG_Q = 86
 # de la coupe (fond perdu), et des traits de coupe marquent où couper.
 #   feuille = format fini 210 + 2×3 mm de fond perdu + 2×5 mm pour les traits
 # Tout en pixels entiers (96 dpi) : un arrondi sub-pixel crée une page fantôme.
-TRIM_PX = 794    # 210 mm — format fini
 BLEED_PX = 11    # 3 mm   — fond perdu
 MARKS_PX = 19    # 5 mm   — marge des traits de coupe
-PAGE_PX = TRIM_PX + 2 * BLEED_PX          # 816 — le dessin, débordant
-SHEET_PX = PAGE_PX + 2 * MARKS_PX         # 854 — la feuille livrée
 PRINT_HERO_MAX = 2600   # ~300 dpi sur 216 mm (1600 px n'en fait que ~190)
 PRINT_GRID_MAX = 1700
 _PRINT = False          # armé le temps d'un rendu imprimeur
 
+# Format fini par thème (mm). La plupart des livres sont pensés « à plat »
+# façon table de montage (carré) ; le thème "catalogue" est un vrai A4
+# portrait, pour un usage diffusion/impression de catalogue produits.
+THEME_TRIM_MM = {"editorial": (210, 210), "brutalist": (210, 210), "catalogue": (210, 297)}
+MM_PX = 96 / 25.4   # px par mm à 96 dpi
+
+
+def _print_dims(theme: str) -> tuple[int, int, int, int]:
+    """(page_w, page_h, sheet_w, sheet_h) en px, fond perdu + traits inclus."""
+    trim_w_mm, trim_h_mm = THEME_TRIM_MM.get(theme, (210, 210))
+    trim_w, trim_h = round(trim_w_mm * MM_PX), round(trim_h_mm * MM_PX)
+    page_w, page_h = trim_w + 2 * BLEED_PX, trim_h + 2 * BLEED_PX
+    return page_w, page_h, page_w + 2 * MARKS_PX, page_h + 2 * MARKS_PX
+
 # Gabarits image et nombre de photos consommées.
 SLOTS = {"full": 1, "duo": 2, "trio": 3, "quad": 4}
 IMAGE_TPLS = set(SLOTS)
-TEXT_TPLS = {"text", "quote"}
+TEXT_TPLS = {"text", "quote", "price-grid"}
+
+# Chapitres "par taille" (chapter_by="size") : bandes de surface (cm²), et
+# ordre d'affichage petit → grand (indépendant du score esthétique).
+_SIZE_BANDS = [(300, "Petit format"), (900, "Format moyen"), (1800, "Grand format")]
+_SIZE_ORDER = ["Petit format", "Format moyen", "Grand format", "Très grand format"]
 
 
 def _slugify(text: str) -> str:
@@ -98,6 +115,64 @@ def _orientation(path: Path) -> str:
 def _score(item: dict) -> float:
     s = item.get("aesthetic_score")
     return float(s) if s is not None else (item.get("rating") or 0) * 1.6
+
+
+def _attr(item: dict, label: str) -> str | None:
+    """Valeur du 1er attribut dont le label correspond (insensible à la casse).
+    None si masqué (`hidden_attributes`, ex. prix retirés d'une diffusion
+    publique) — la valeur reste dans le sidecar, juste ignorée ici."""
+    if label.lower() in {(h or "").strip().lower() for h in (item.get("hidden_attributes") or [])}:
+        return None
+    for a in (item.get("attributes") or []):
+        if isinstance(a, dict) and (a.get("label") or "").strip().lower() == label.lower():
+            v = (a.get("value") or "").strip()
+            if v:
+                return v
+    return None
+
+
+def _size_category(item: dict) -> str | None:
+    """Bande de taille (cm²) déduite de l'attribut Taille (ex. "30 x 42 cm").
+    None si l'attribut est absent ou non parsable — l'appelant range alors
+    l'item dans un chapitre de repli plutôt que d'échouer."""
+    taille = _attr(item, "Taille")
+    if not taille:
+        return None
+    m = re.search(r"(\d+[.,]?\d*)\s*[x×]\s*(\d+[.,]?\d*)", taille, re.I)
+    if not m:
+        return None
+    w = float(m.group(1).replace(",", "."))
+    h = float(m.group(2).replace(",", "."))
+    area = w * h
+    for threshold, label in _SIZE_BANDS:
+        if area <= threshold:
+            return label
+    return "Très grand format"
+
+
+def _price_grid_rows(groups: dict) -> list:
+    """Une ligne par catégorie de taille présente : dimensions observées +
+    prix le plus fréquent (les "0,00 €" marquent une pièce vendue/unique,
+    donc exclus du calcul plutôt que de fausser la grille)."""
+    rows = []
+    for cat in _SIZE_ORDER:
+        its = groups.get(cat)
+        if not its:
+            continue
+        sizes, prices = set(), []
+        for it in its:
+            taille = _attr(it, "Taille")
+            if taille:
+                sizes.add(taille)
+            prix = _attr(it, "Prix")
+            if prix and not re.match(r"^0+[,.]0+", prix):
+                prices.append(prix)
+        rows.append({
+            "category": cat,
+            "range_cm": " / ".join(sorted(sizes)) or "—",
+            "price": Counter(prices).most_common(1)[0][0] if prices else "—",
+        })
+    return rows
 
 
 def _caption(item: dict) -> str:
@@ -302,11 +377,12 @@ def repad_model(model: dict, unit: int) -> dict:
 # ---------------------------------------------------------------------------
 def _spec_for(it: dict) -> list:
     """Fiche technique auto (look brutaliste) depuis les métadonnées d'Iris."""
+    hidden = {(h or "").strip().lower() for h in (it.get("hidden_attributes") or [])}
     spec = []
     if it.get("category_label") and it["category_label"] != "?":
         spec.append(("Catégorie", it["category_label"]))
     for a in (it.get("attributes") or [])[:4]:
-        if isinstance(a, dict) and a.get("label") and a.get("value"):
+        if isinstance(a, dict) and a.get("label") and a.get("value") and a["label"].strip().lower() not in hidden:
             spec.append((str(a["label"]), str(a["value"])))
     if it.get("aesthetic_score") is not None:
         spec.append(("Score", f'{float(it["aesthetic_score"]):.1f} / 10'))
@@ -339,16 +415,27 @@ def compose_model(paths, title="Iris Artbook", subtitle="", chapter_by="category
         groups = {}
         for it in items:
             groups.setdefault(it.get("category_label") or "Sans catégorie", []).append(it)
+    elif chapter_by == "size":
+        groups = {}
+        for it in items:
+            groups.setdefault(_size_category(it) or "Format non renseigné", []).append(it)
     else:
         groups = {"": items}
+
+    price_grid_rows = _price_grid_rows(groups) if chapter_by == "size" else []
 
     chapters = []
     for t, its in groups.items():
         its.sort(key=lambda x: x["_score"], reverse=True)
         chapters.append((t, its, sum(x["_score"] for x in its) / len(its)))
-    chapters.sort(key=lambda c: c[2], reverse=True)
+    if chapter_by == "size":
+        # petit → grand format, pas par score esthétique : un catalogue se lit
+        # dans un ordre de taille logique, pas par "plus belles photos d'abord".
+        chapters.sort(key=lambda c: _SIZE_ORDER.index(c[0]) if c[0] in _SIZE_ORDER else len(_SIZE_ORDER))
+    else:
+        chapters.sort(key=lambda c: c[2], reverse=True)
 
-    multi = chapter_by == "category" and len(chapters) > 1
+    multi = chapter_by in ("category", "size") and len(chapters) > 1
     hero = cover_path if (cover_path and Path(cover_path).is_file()) else chapters[0][1][0]["path"]
 
     sub = subtitle or datetime.now().strftime("%d %B %Y")
@@ -358,11 +445,18 @@ def compose_model(paths, title="Iris Artbook", subtitle="", chapter_by="category
         pages.append({"tpl": "garde", "title": title, "subtitle": sub})
         pages.append({"tpl": "dedicace", "text": "Pour…"})
 
+    if chapter_by == "size" and price_grid_rows:
+        pages.append({"tpl": "price-grid", "title": "Grille tarifaire", "rows": price_grid_rows})
+
     # Brutaliste : là où l'éditorial met 2 photos (duo), on met photo + fiche
     # technique (photo-text) auto-générée → beaucoup de texte, look magazine.
-    brut = theme == "brutalist"
     cycle = (["full", "photo-text", "quad", "photo-text", "full", "trio", "photo-text"]
-             if brut else ["quad", "full", "duo", "trio", "full", "quad", "duo"])
+             if theme == "brutalist" else ["quad", "full", "duo", "trio", "full", "quad", "duo"])
+    # Catalogue : liste compacte, PRODUCTS_PER_PAGE fiches par page (nom,
+    # référence, prix, description) — comme le document source, dont la
+    # majorité des photos sont en format paysage : object-fit:contain, jamais
+    # rognées, plutôt qu'une seule photo plein cadre par page.
+    PRODUCTS_PER_PAGE = 5
     fig_i = 0
     by_path = {x["path"]: x for _, its, _ in chapters for x in its}
     for ci, (ctitle, its, _) in enumerate(chapters):
@@ -371,26 +465,42 @@ def compose_model(paths, title="Iris Artbook", subtitle="", chapter_by="category
         paths_c = [x["path"] for x in its]
         i, n, k = 0, len(paths_c), 0
         cpages = []  # pages photo du chapitre, pour glisser l'encart au milieu
-        if n:
-            cpages.append({"tpl": "full", "items": [paths_c[0]]})
-            i = 1
-        while i < n:
-            tpl = cycle[k % len(cycle)]; k += 1
-            if tpl == "photo-text":
-                path = paths_c[i]; i += 1; fig_i += 1
-                it = by_path.get(path, {})
-                cpages.append({"tpl": "photo-text", "items": [path],
-                               "fig": f"FIG. {fig_i:02d}",
-                               "heading": it.get("character_name") or it.get("category_label") or "",
-                               "body": (it.get("details") or ""),
-                               "spec": _spec_for(it)})
-                continue
-            need = SLOTS[tpl]
-            if n - i < need:
-                need = n - i
-                tpl = {1: "full", 2: "duo", 3: "trio"}.get(need, "quad")
-            cpages.append({"tpl": tpl, "items": paths_c[i:i + need]})
-            i += need
+        if theme == "catalogue":
+            for j in range(0, n, PRODUCTS_PER_PAGE):
+                chunk = paths_c[j:j + PRODUCTS_PER_PAGE]
+                rows = []
+                for path in chunk:
+                    it = by_path.get(path, {})
+                    rows.append({
+                        "path": path,
+                        "heading": it.get("character_name") or _attr(it, "Nom") or it.get("category_label") or "",
+                        "ref": _attr(it, "Référence") or "",
+                        "price": _attr(it, "Prix") or "",
+                        "body": it.get("details") or "",
+                    })
+                cpages.append({"tpl": "product-list", "items": chunk, "rows": rows})
+            i = n
+        else:
+            if n:
+                cpages.append({"tpl": "full", "items": [paths_c[0]]})
+                i = 1
+            while i < n:
+                tpl = cycle[k % len(cycle)]; k += 1
+                if tpl == "photo-text":
+                    path = paths_c[i]; i += 1; fig_i += 1
+                    it = by_path.get(path, {})
+                    cpages.append({"tpl": "photo-text", "items": [path],
+                                   "fig": f"FIG. {fig_i:02d}",
+                                   "heading": it.get("character_name") or _attr(it, "Nom") or it.get("category_label") or "",
+                                   "body": (it.get("details") or ""),
+                                   "spec": _spec_for(it)})
+                    continue
+                need = SLOTS[tpl]
+                if n - i < need:
+                    need = n - i
+                    tpl = {1: "full", 2: "duo", 3: "trio"}.get(need, "quad")
+                cpages.append({"tpl": tpl, "items": paths_c[i:i + need]})
+                i += need
 
         # Encart texte au milieu de la suite de doubles pages (chapitre assez
         # fourni). Fond = une photo du milieu, texte tiré de ses métadonnées.
@@ -413,7 +523,7 @@ def compose_model(paths, title="Iris Artbook", subtitle="", chapter_by="category
     if want_index:
         all_imgs = []
         for pg in pages:
-            if pg.get("tpl") in IMAGE_TPLS or pg.get("tpl") in ("photo-text", "pano"):
+            if pg.get("tpl") in IMAGE_TPLS or pg.get("tpl") in ("photo-text", "pano", "product-list"):
                 all_imgs.extend(pg.get("items", []))
         if all_imgs:
             pages.append({"tpl": "index", "heading": "Index", "items": all_imgs})
@@ -640,6 +750,19 @@ def _render_page(pg: dict, meta: dict) -> str:
         head = f'<div class="ix-head">{_escape(pg.get("heading","Index"))}</div>'
         return f'<section class="page page-index">{head}<div class="ix-grid">{"".join(cells)}</div></section>'
 
+    # Grille tarifaire : une ligne par catégorie de taille (Catégorie /
+    # Dimensions / Prix), injectée automatiquement en mode chapter_by="size".
+    if tpl == "price-grid":
+        header = ('<div class="pg-row pg-head"><div class="pg-cat">Catégorie</div>'
+                   '<div class="pg-dim">Dimensions</div><div class="pg-price">Prix</div></div>')
+        rows = "".join(
+            f'<div class="pg-row"><div class="pg-cat">{_escape(r.get("category",""))}</div>'
+            f'<div class="pg-dim">{_escape(r.get("range_cm",""))}</div>'
+            f'<div class="pg-price">{_escape(r.get("price",""))}</div></div>'
+            for r in pg.get("rows", []))
+        head = f'<h2 class="pg-title">{_escape(pg.get("title","Grille tarifaire"))}</h2>'
+        return f'<section class="page page-pricegrid">{head}<div class="pg-grid">{header}{rows}</div></section>'
+
     # Photo + bloc texte (une photo, une colonne de texte) — cœur du look
     # brutaliste : là où l'éditorial mettrait 2 photos, on met photo + texte.
     if tpl == "photo-text":
@@ -656,6 +779,19 @@ def _render_page(pg: dict, meta: dict) -> str:
         body = f'<div class="pt-body"><p>{_nl2br(pg.get("body",""))}</p></div>' if pg.get("body") else ""
         side = f'<div class="pt-txt"><div class="pt-fig">{_escape(pg.get("fig",""))}</div>{head}{body}{spec}</div>'
         return f'<section class="page page-phototext">{img}{side}</section>'
+
+    # Liste de fiches produit (catalogue) : plusieurs par page, vignette en
+    # object-fit:contain (jamais rognée — adapté aux photos en paysage).
+    if tpl == "product-list":
+        rows_html = []
+        for r in pg.get("rows", []):
+            img = f'<div class="pl-img"><img src="{_data_uri(Path(r["path"]), GRID_MAX)}" alt="" /></div>'
+            head = f'<div class="pl-name">{_escape(r.get("heading",""))}</div>' if r.get("heading") else ""
+            ref = f'<div class="pl-ref">Référence : <b>{_escape(r["ref"])}</b></div>' if r.get("ref") else ""
+            price = f'<div class="pl-price">Prix : <b>{_escape(r["price"])}</b></div>' if r.get("price") else ""
+            body = f'<div class="pl-desc">{_escape(r.get("body",""))}</div>' if r.get("body") else ""
+            rows_html.append(f'<div class="pl-row">{img}<div class="pl-text">{head}{ref}{price}{body}</div></div>')
+        return f'<section class="page page-productlist">{"".join(rows_html)}</section>'
 
     # gabarits image
     fits = pg.get("fits") or {}
@@ -732,6 +868,13 @@ figure.fit-cover img{object-fit:cover;} figure.fit-contain img{object-fit:contai
 .ix-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:4mm;}
 .ix-cell{position:relative;aspect-ratio:1;overflow:hidden;} .ix-cell img{width:100%;height:100%;object-fit:cover;}
 .ix-n{position:absolute;left:0;bottom:0;font-size:9px;padding:1mm 2mm;background:#fff;color:var(--ink);}
+/* Grille tarifaire (chapter_by="size") */
+.page-pricegrid{padding:30mm 26mm;} .pg-title{font-size:26px;font-weight:700;margin:0 0 12mm;letter-spacing:-.015em;}
+.pg-grid{display:flex;flex-direction:column;}
+.pg-row{display:grid;grid-template-columns:1fr auto auto;gap:8mm;padding:5mm 0;border-bottom:1px solid rgba(26,26,26,.12);align-items:baseline;}
+.pg-row.pg-head{font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--muted);border-bottom:1.5px solid var(--ink);padding-bottom:4mm;}
+.pg-cat{font-size:14px;font-weight:600;} .pg-dim{font-size:12px;color:var(--muted);text-align:right;}
+.pg-price{font-size:14px;font-weight:700;color:var(--accent);text-align:right;min-width:22mm;}
 /* Encart texte : carton centré au-dessus d'une photo pleine page */
 .page-insert{display:flex;align-items:center;justify-content:center;background:#141414;}
 .ins-bg{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;filter:saturate(.9) contrast(1.02);}
@@ -800,6 +943,11 @@ _FONT_SETS = {
         "IBM Plex Mono:600:normal": "ibm-plex-mono-600.woff2",
         "IBM Plex Sans:400:normal": "ibm-plex-sans-400.woff2",
         "IBM Plex Sans:700:normal": "ibm-plex-sans-700.woff2",
+    },
+    "catalogue": {
+        "Noto Serif:400:normal": "noto-serif-400.woff2",
+        "Noto Serif:700:normal": "noto-serif-700.woff2",
+        "Noto Serif:400:italic": "noto-serif-400i.woff2",
     },
 }
 
@@ -889,6 +1037,15 @@ figure.fit-contain img{object-fit:contain;background:#e6e2da;}
 .page-index{padding:14mm;} .ix-head{font-family:'IBM Plex Mono',monospace;font-size:13px;letter-spacing:.2em;text-transform:uppercase;color:var(--accent);font-weight:600;margin-bottom:7mm;border-bottom:2px solid var(--line);padding-bottom:4mm;}
 .ix-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:3mm;}
 .ix-cell{position:relative;aspect-ratio:1;overflow:hidden;} .ix-cell img{width:100%;height:100%;object-fit:cover;filter:grayscale(1) contrast(1.05);}
+/* Grille tarifaire (chapter_by="size") */
+.page-pricegrid{padding:26mm 22mm;}
+.pg-title{font-family:'IBM Plex Mono',monospace;font-size:24px;font-weight:700;text-transform:uppercase;margin:0 0 10mm;letter-spacing:-.01em;}
+.pg-title::after{content:"";display:block;width:26mm;height:3px;background:var(--accent);margin-top:5mm;}
+.pg-grid{display:flex;flex-direction:column;font-family:'IBM Plex Mono',monospace;}
+.pg-row{display:grid;grid-template-columns:1fr auto auto;gap:8mm;padding:5mm 0;border-bottom:1.5px solid var(--line);align-items:baseline;}
+.pg-row.pg-head{font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--accent);font-weight:600;border-bottom:2px solid var(--line);padding-bottom:4mm;}
+.pg-cat{font-size:14px;font-weight:700;text-transform:uppercase;} .pg-dim{font-size:12px;color:var(--muted);text-align:right;}
+.pg-price{font-size:15px;font-weight:700;color:var(--ink);text-align:right;min-width:22mm;}
 .ix-n{position:absolute;left:0;bottom:0;font-family:'IBM Plex Mono',monospace;font-size:9px;padding:0 2mm;background:var(--accent);color:#141414;}
 /* Encart texte : carton mono, filet orange, au-dessus d'une photo n&b */
 .page-insert{display:flex;align-items:center;justify-content:center;background:#0e0e0e;}
@@ -939,7 +1096,143 @@ figure.fit-contain img{object-fit:contain;background:#e6e2da;}
 .bc-foot{font-family:'IBM Plex Mono',monospace;margin-top:10mm;font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:var(--accent);}
 """
 
-THEMES = {"editorial": CSS_EDITORIAL, "brutalist": CSS_BRUTALIST}
+# ---------------------------------------------------------------------------
+# Thème CATALOGUE : A4 portrait, serif, vert profond — inspiré du catalogue
+# produits (.odt) qui a motivé ce thème. Sans photo de couverture (comme le
+# document source) ; chaque page "photo-text" se lit comme une fiche produit
+# (nom, référence, taille, prix).
+# ---------------------------------------------------------------------------
+CSS_CATALOGUE = """
+:root { --page-w:794px; --page-h:1123px; --ink:#1a1a1a; --paper:#ffffff; --muted:#6b6b6b; --accent:#2e5e4e; --line:#dcd7ca; }
+*{box-sizing:border-box;} html,body{margin:0;padding:0;background:#3a3a3a;}
+body{font-family:'Noto Serif','Nimbus Roman','Liberation Serif',Georgia,serif;color:var(--ink);}
+@page{size:794px 1123px;margin:0;}
+.page{width:var(--page-w);height:var(--page-h);position:relative;overflow:hidden;background:var(--paper);
+  page-break-after:always;break-after:page;break-inside:avoid;page-break-inside:avoid;
+  margin:10mm auto;box-shadow:0 6px 30px rgba(0,0,0,.4);}
+.page:last-child{break-after:avoid;page-break-after:avoid;}
+@media print{.page{margin:0;box-shadow:none;}}
+/* Couverture typographique, sans photo — comme la page de titre du catalogue source */
+.page-cover{background:var(--paper);display:flex;flex-direction:column;justify-content:center;padding:30mm 26mm;}
+.page-cover .cover-bg,.page-cover .cover-scrim{display:none;}
+.cover-text{position:static;color:var(--ink);text-align:center;}
+.cover-kicker{display:none;}
+.cover-title{font-size:44px;font-weight:700;letter-spacing:.02em;text-transform:uppercase;color:var(--accent);margin:0;}
+.cover-sub{margin-top:6mm;font-size:16px;font-style:italic;color:var(--muted);}
+.cover-text::after{content:"";display:block;width:60mm;height:1px;background:var(--line);margin:10mm auto 0;}
+/* Chapitre : titre + filet fin, beaucoup de blanc — pages de section du catalogue */
+.page-chapter{display:flex;flex-direction:column;justify-content:center;align-items:flex-start;padding:26mm 24mm;}
+.ch-num{display:none;}
+.ch-title{font-size:34px;font-weight:700;text-transform:uppercase;letter-spacing:.01em;margin:0;color:var(--ink);}
+.ch-rule{width:100%;height:1px;background:var(--line);margin:6mm 0;}
+.ch-count{font-size:13px;font-style:italic;color:var(--muted);}
+/* Pages texte */
+.page-text{display:flex;flex-direction:column;justify-content:center;padding:30mm 32mm;}
+.tx-kicker{font-size:11px;letter-spacing:.24em;text-transform:uppercase;color:var(--accent);font-weight:700;margin-bottom:6mm;}
+.tx-heading{font-size:26px;font-weight:700;color:var(--accent);margin:0 0 8mm;}
+.tx-body{font-size:13.5px;line-height:1.7;color:var(--ink);} .tx-body p{margin:0 0 4mm;}
+.page-quote{display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;padding:28mm;}
+.q-text{font-size:26px;line-height:1.4;font-style:italic;font-weight:400;margin:0;max-width:140mm;color:var(--ink);}
+.q-attr{margin-top:10mm;font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);}
+/* Gabarits image */
+.page-full{display:flex;} .page-full figure{margin:0;width:100%;height:100%;position:relative;}
+.page-full img{width:100%;height:100%;display:block;object-fit:cover;}
+.page-full figcaption,.page-grid figcaption{position:absolute;left:0;bottom:0;right:0;color:#fff;
+  background:linear-gradient(180deg,rgba(0,0,0,0),rgba(0,0,0,.55));padding:6mm 8mm;font-size:12px;font-style:italic;}
+.page-grid{padding:12mm;display:grid;gap:6mm;background:var(--paper);}
+.g-duo{grid-template-columns:1fr;grid-template-rows:1fr 1fr;} .g-trio{grid-template-columns:1fr 1fr;}
+.g-trio figure:first-child{grid-column:1 / -1;} .g-quad{grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;}
+.page-grid figure{margin:0;position:relative;overflow:hidden;border:1px solid var(--line);} .page-grid img{width:100%;height:100%;display:block;object-fit:cover;}
+.page-grid figcaption{padding:3mm 4mm;font-size:9.5px;}
+figure.fit-cover img{object-fit:cover;} figure.fit-contain img{object-fit:contain;background:#f4f2ec;}
+/* Photo + fiche produit — cœur du catalogue : image + nom/référence/taille/prix */
+.page-phototext{display:grid;grid-template-columns:1fr 1fr;}
+.pt-img{position:relative;border-right:1px solid var(--line);} .pt-img figure{margin:0;width:100%;height:100%;} .pt-img img{width:100%;height:100%;object-fit:cover;}
+.pt-txt{padding:20mm 18mm;display:flex;flex-direction:column;justify-content:center;}
+.pt-fig{display:none;}
+.pt-head{font-size:22px;font-weight:700;color:var(--accent);margin:0 0 6mm;}
+.pt-body{font-size:12.5px;line-height:1.6;color:var(--muted);font-style:italic;} .pt-body p{margin:0 0 4mm;}
+.pt-spec{display:flex;flex-direction:column;margin-top:6mm;font-size:12px;}
+.pt-spec>div{padding:2.4mm 0;border-bottom:1px solid var(--line);}
+.pt-k{color:var(--muted);text-transform:uppercase;letter-spacing:.06em;font-size:10.5px;}
+.pt-v{color:var(--ink);font-weight:600;}
+/* Liste de fiches produit — plusieurs par page, comme le document source.
+   object-fit:contain (jamais de recadrage) : la plupart des photos sont en
+   format paysage, un cadrage plein cadre les aurait mutilées. */
+.page-productlist{padding:14mm 16mm;display:flex;flex-direction:column;gap:5mm;}
+.pl-row{flex:0 0 46mm;display:flex;gap:6mm;align-items:stretch;
+  border:1px solid var(--line);border-radius:2px;background:#fbfbf8;padding:5mm;}
+.pl-img{width:36mm;flex-shrink:0;background:#f1efe9;display:flex;align-items:center;justify-content:center;overflow:hidden;}
+.pl-img img{max-width:100%;max-height:100%;object-fit:contain;}
+.pl-text{flex:1;min-width:0;display:flex;flex-direction:column;justify-content:center;gap:1mm;}
+.pl-name{font-size:14px;font-weight:700;color:var(--accent);}
+.pl-ref{font-size:10.5px;color:var(--muted);} .pl-ref b{color:var(--ink);font-weight:700;}
+.pl-price{font-size:10.5px;color:var(--muted);} .pl-price b{color:var(--ink);font-weight:700;}
+.pl-desc{font-size:10.5px;font-style:italic;color:var(--muted);line-height:1.4;margin-top:1mm;}
+/* Page pleine couleur / panoramique / index */
+.page-fill{display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;padding:26mm;}
+.fill-paper{background:var(--paper);} .fill-orange{background:var(--accent);color:#fff;} .fill-black{background:#141414;color:var(--paper);}
+.fill-big{font-size:34px;font-weight:700;line-height:1.15;max-width:150mm;}
+.fill-sub{margin-top:8mm;font-size:13px;font-style:italic;opacity:.85;}
+.page-pano{padding:0;} .pano-half{width:100%;height:100%;background-size:200% 100%;background-repeat:no-repeat;}
+.pano-l{background-position:left center;} .pano-r{background-position:right center;}
+.page-index{padding:16mm;} .ix-head{font-size:13px;letter-spacing:.18em;text-transform:uppercase;color:var(--muted);margin-bottom:8mm;border-bottom:1px solid var(--line);padding-bottom:4mm;}
+.ix-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:4mm;}
+.ix-cell{position:relative;aspect-ratio:1;overflow:hidden;border:1px solid var(--line);} .ix-cell img{width:100%;height:100%;object-fit:cover;}
+.ix-n{position:absolute;left:0;bottom:0;font-size:9px;padding:1mm 2mm;background:#fff;color:var(--ink);}
+/* Grille tarifaire */
+.page-pricegrid{padding:30mm 26mm;} .pg-title{font-size:24px;font-weight:700;color:var(--accent);margin:0 0 12mm;text-transform:uppercase;letter-spacing:.01em;}
+.pg-grid{display:flex;flex-direction:column;}
+.pg-row{display:grid;grid-template-columns:1fr auto auto;gap:8mm;padding:5mm 0;border-bottom:1px solid var(--line);align-items:baseline;}
+.pg-row.pg-head{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);border-bottom:1.5px solid var(--ink);padding-bottom:4mm;}
+.pg-cat{font-size:14px;font-weight:700;} .pg-dim{font-size:12px;color:var(--muted);text-align:right;font-style:italic;}
+.pg-price{font-size:14px;font-weight:700;color:var(--accent);text-align:right;min-width:22mm;}
+/* Encart texte */
+.page-insert{display:flex;align-items:center;justify-content:center;background:#141414;}
+.ins-bg{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;filter:saturate(.85) contrast(1.0);}
+.ins-scrim{position:absolute;inset:0;background:linear-gradient(180deg,rgba(10,10,10,.5),rgba(10,10,10,.4));}
+.ins-card{position:relative;background:var(--paper);color:var(--ink);max-width:120mm;margin:0 22mm;
+  padding:20mm 22mm;box-shadow:0 12px 44px rgba(0,0,0,.4);text-align:center;}
+.page-insert:not(.has-img){background:var(--paper);} .page-insert:not(.has-img) .ins-card{box-shadow:none;border-top:1px solid var(--line);border-bottom:1px solid var(--line);}
+.ins-kicker{font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:var(--accent);font-weight:700;margin-bottom:7mm;}
+.ins-heading{font-size:22px;font-weight:700;color:var(--accent);margin:0 0 8mm;}
+.ins-body{font-size:13px;line-height:1.6;color:var(--ink);text-align:left;} .ins-body p{margin:0 0 4mm;}
+/* Recta / Pirate : gardés discrets (rarement utilisés dans un catalogue) */
+.page-recta{display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;padding:26mm;background:#f6f4ee;color:var(--ink);}
+.rc-kicker{font-size:11px;letter-spacing:.3em;text-transform:uppercase;color:var(--accent);font-weight:700;margin-bottom:11mm;}
+.rc-quote{font-size:26px;line-height:1.3;font-style:italic;margin:0;max-width:150mm;}
+.rc-quote::before,.rc-quote::after{content:none;}
+.rc-sign{margin-top:13mm;font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:var(--muted);}
+.rc-communique{align-items:flex-start;text-align:left;padding:30mm 32mm;}
+.rc-ref{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);font-weight:700;margin-bottom:8mm;}
+.rc-body{font-size:14px;line-height:1.65;} .rc-body p{margin:0 0 5mm;}
+.rc-motto{margin-top:6mm;font-style:italic;font-size:15px;}
+.page-pirate{position:relative;display:flex;flex-direction:column;justify-content:center;padding:24mm;background:#141414;color:#fff;overflow:hidden;}
+.pir-noise,.pir-scan{display:none;}
+.pir-band{position:absolute;top:9mm;left:0;right:0;text-align:center;font-size:11px;letter-spacing:.2em;color:var(--pir);padding:2mm 0;border-top:1px solid var(--pir);border-bottom:1px solid var(--pir);}
+.pir-head{font-weight:700;font-size:44px;color:#fff;}
+.pir-head::before,.pir-head::after{content:none;}
+.pir-num{font-size:12px;letter-spacing:.16em;color:var(--pir);margin:4mm 0 9mm;}
+.pir-text{font-weight:600;font-style:italic;font-size:20px;line-height:1.4;margin:0;max-width:150mm;text-shadow:none;}
+.pir-text::after{content:none;}
+.pir-sign{margin-top:11mm;font-weight:700;font-size:14px;letter-spacing:.1em;color:var(--pir);text-shadow:none;}
+/* Pages liminaires & 4e de couverture */
+.page-garde{display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;padding:30mm;background:var(--paper);}
+.gd-kicker{display:none;}
+.gd-title{font-size:32px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:.01em;line-height:1.08;margin:0;max-width:160mm;}
+.gd-rule{width:60mm;height:1px;background:var(--line);margin:8mm auto 0;}
+.gd-sub{margin-top:8mm;font-size:14px;font-style:italic;color:var(--muted);}
+.page-dedicace{display:flex;justify-content:center;align-items:center;text-align:center;padding:40mm;background:var(--paper);}
+.dd-text{font-size:16px;font-style:italic;line-height:1.7;color:var(--muted);max-width:120mm;}
+.page-backcover{position:relative;display:flex;flex-direction:column;justify-content:flex-end;padding:24mm;background:#1e2d27;color:#fff;overflow:hidden;}
+.bc-bg{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;filter:saturate(.7) brightness(.4);}
+.bc-scrim{position:absolute;inset:0;background:linear-gradient(180deg,rgba(20,30,25,.5),rgba(20,30,25,.85));}
+.bc-inner{position:relative;}
+.bc-blurb{font-size:15px;font-style:italic;line-height:1.65;max-width:140mm;} .bc-blurb p{margin:0 0 4mm;}
+.bc-foot{margin-top:12mm;font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:rgba(255,255,255,.75);}
+"""
+
+THEMES = {"editorial": CSS_EDITORIAL, "brutalist": CSS_BRUTALIST, "catalogue": CSS_CATALOGUE}
 
 
 # ── Deux profils de fichier, parce que les imprimeurs n'attendent pas la même
@@ -956,13 +1249,14 @@ THEMES = {"editorial": CSS_EDITORIAL, "brutalist": CSS_BRUTALIST}
 # perdu (légendes, bandeaux) — sinon ils partent au massicot.
 SAFE_PX = 48   # 12,7 mm depuis le format fini
 
-CSS_PRINT_BASE = f"""
+def _css_print_base(page_w: int, page_h: int) -> str:
+    return f"""
 html,body{{background:#fff;margin:0;padding:0;}}
 .sheet{{position:relative;background:#fff;overflow:hidden;
   display:flex;align-items:center;justify-content:center;margin:0;
   page-break-after:always;break-after:page;break-inside:avoid;page-break-inside:avoid;}}
 .sheet:last-child{{break-after:avoid;page-break-after:avoid;}}
-.sheet .page{{width:{PAGE_PX}px;height:{PAGE_PX}px;margin:0;box-shadow:none;border-radius:0;}}
+.sheet .page{{width:{page_w}px;height:{page_h}px;margin:0;box-shadow:none;border-radius:0;}}
 /* Zone tranquille : le texte posé sur une image à fond perdu doit rester à
    {SAFE_PX}px (12,7 mm) du format fini, sinon le massicot le coupe. */
 .page-full figcaption{{left:{SAFE_PX}px;right:{SAFE_PX}px;bottom:{SAFE_PX}px;padding:4mm 5mm;}}
@@ -975,27 +1269,33 @@ html,body{{background:#fff;margin:0;padding:0;}}
 :root{{--ink:#000;}}
 .page,.tx-body,.rc-body,.pt-body,.ins-body,.bc-blurb,.dd-text,
 .cover-title,.ch-title,.tx-heading,.q-text,.rc-quote,.gd-title,
-.pt-head,.ins-heading,.fill-big,.pir-head{{color:#000;}}
+.pt-head,.ins-heading,.fill-big,.pir-head,
+.pg-title,.pg-cat,.pg-dim,.pg-price{{color:#000;}}
 .page-cover,.page-cover .cover-title,.page-cover .cover-sub,.page-cover .cover-kicker,
 .page-backcover,.page-backcover .bc-blurb,.page-pirate,.page-pirate .pir-text,
 .page-full figcaption,.page-grid figcaption{{color:#fff;}}
 """
 
-# Profil « en ligne » : la feuille EST le format fini + fond perdu, rien autour.
-CSS_PRINT_ONLINE = f"""
-@page{{size:{PAGE_PX}px {PAGE_PX}px;margin:0;}}
-.sheet{{width:{PAGE_PX}px;height:{PAGE_PX}px;}}
+
+def _css_print_online(page_w: int, page_h: int) -> str:
+    """Profil « en ligne » : la feuille EST le format fini + fond perdu, rien autour."""
+    return f"""
+@page{{size:{page_w}px {page_h}px;margin:0;}}
+.sheet{{width:{page_w}px;height:{page_h}px;}}
 .marks,.folio{{display:none;}}
 """
 
-# Profil « atelier » : marge supplémentaire pour tracer les équerres.
-CSS_PRINT_MARKS = f"""
-@page{{size:{SHEET_PX}px {SHEET_PX}px;margin:0;}}
-.sheet{{width:{SHEET_PX}px;height:{SHEET_PX}px;}}
-/* Équerres de coupe (« hirondelles ») : alignées sur le format fini, tracées
-   dans la marge et démarrant APRÈS le fond perdu — elles ne doivent jamais
-   mordre sur la zone imprimée. Trait de 1 px (~0,7 pt) sur 19 px (5 mm), soit
-   les proportions habituelles d'un fichier de prépresse. */
+
+def _css_print_marks(sheet_w: int, sheet_h: int) -> str:
+    """Profil « atelier » : marge supplémentaire pour tracer les équerres.
+
+    Équerres de coupe (« hirondelles ») : alignées sur le format fini, tracées
+    dans la marge et démarrant APRÈS le fond perdu — elles ne doivent jamais
+    mordre sur la zone imprimée. Trait de 1 px (~0,7 pt) sur 19 px (5 mm), soit
+    les proportions habituelles d'un fichier de prépresse."""
+    return f"""
+@page{{size:{sheet_w}px {sheet_h}px;margin:0;}}
+.sheet{{width:{sheet_w}px;height:{sheet_h}px;}}
 .marks i{{position:absolute;width:0;height:0;}}
 .marks i::before,.marks i::after{{content:"";position:absolute;background:#000;}}
 .marks i::before{{height:1px;width:19px;}}
@@ -1045,8 +1345,10 @@ def render_model(model: dict, print_mode: bool = False, marks: bool = False) -> 
     finally:
         _PRINT = False
     if print_mode:
+        page_w, page_h, sheet_w, sheet_h = _print_dims(theme)
         body = _wrap_sheets(body, title)
-        css += CSS_PRINT_BASE + (CSS_PRINT_MARKS if marks else CSS_PRINT_ONLINE)
+        css += _css_print_base(page_w, page_h) + (
+            _css_print_marks(sheet_w, sheet_h) if marks else _css_print_online(page_w, page_h))
     suffix = ("-atelier" if marks else "-imprimeur") if print_mode else ""
     html = (f'<!doctype html><html lang="fr"><head><meta charset="utf-8" />'
             f'<title>{_escape(title)}</title>'
@@ -1054,7 +1356,8 @@ def render_model(model: dict, print_mode: bool = False, marks: bool = False) -> 
             f'<body>{body}</body></html>')
     out = EXPORTS_DIR / f"artbook-{_slugify(title)}{suffix}-{datetime.now():%Y%m%d-%H%M%S}.html"
     out.write_text(html, encoding="utf-8")
-    n_photos = sum(len(p.get("items", [])) for p in pages if p.get("tpl") in IMAGE_TPLS or p.get("tpl") == "photo-text")
+    n_photos = sum(len(p.get("items", [])) for p in pages
+                   if p.get("tpl") in IMAGE_TPLS or p.get("tpl") in ("photo-text", "product-list"))
     return out, {"pages": len(pages), "photos": n_photos}
 
 
@@ -1161,9 +1464,10 @@ def render_pdf(model: dict, print_mode: bool = False, marks: bool = False, cmyk:
     html_path, _ = render_model(model, print_mode=print_mode, marks=marks)
     pdf_path = html_path.with_suffix(".pdf")
     chrome = shutil.which("google-chrome") or shutil.which("google-chrome-stable") \
-        or shutil.which("chromium") or shutil.which("chromium-browser")
+        or shutil.which("chromium") or shutil.which("chromium-browser") \
+        or shutil.which("brave-browser-stable") or shutil.which("brave-browser")
     if not chrome:
-        raise RuntimeError("Aucun chromium/chrome trouvé pour l'export PDF")
+        raise RuntimeError("Aucun chromium/chrome/brave trouvé pour l'export PDF")
     subprocess.run(
         [chrome, "--headless=new", "--disable-gpu", "--no-sandbox",
          f"--print-to-pdf={pdf_path}", "--no-pdf-header-footer",

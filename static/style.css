@@ -757,7 +757,7 @@ textarea { resize: vertical; }
   height: 100%; font-size: 12px; font-weight: 700; color: var(--muted); letter-spacing: .08em; }
 .wiz-cov-auto small { font-weight: 400; letter-spacing: 0; }
 /* thèmes */
-.wiz-themes { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.wiz-themes { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; }
 .wiz-theme { text-align: left; padding: 18px; border: 2px solid var(--border-soft); border-radius: 12px;
   background: var(--bg-2); cursor: pointer; display: flex; flex-direction: column; gap: 6px; position: relative; }
 .wiz-theme.on { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-dim); }
@@ -766,6 +766,7 @@ textarea { resize: vertical; }
 .wiz-theme-swatch { height: 8px; border-radius: 4px; margin-top: 8px; }
 .sw-editorial { background: linear-gradient(90deg, #faf8f4, #b8863b); }
 .sw-brutalist { background: linear-gradient(90deg, #141414, #fe5000); }
+.sw-catalogue { background: linear-gradient(90deg, #ffffff, #2e5e4e); }
 /* toggles */
 .wiz-tog { display: flex; align-items: flex-start; gap: 11px; padding: 11px 0; cursor: pointer;
   border-bottom: 1px solid var(--border-soft); }
