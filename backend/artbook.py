@@ -992,20 +992,23 @@ CSS_PRINT_ONLINE = f"""
 CSS_PRINT_MARKS = f"""
 @page{{size:{SHEET_PX}px {SHEET_PX}px;margin:0;}}
 .sheet{{width:{SHEET_PX}px;height:{SHEET_PX}px;}}
-/* équerres de coupe : posées sur le format fini, tracées dans la marge */
+/* Équerres de coupe (« hirondelles ») : alignées sur le format fini, tracées
+   dans la marge et démarrant APRÈS le fond perdu — elles ne doivent jamais
+   mordre sur la zone imprimée. Trait de 1 px (~0,7 pt) sur 19 px (5 mm), soit
+   les proportions habituelles d'un fichier de prépresse. */
 .marks i{{position:absolute;width:0;height:0;}}
 .marks i::before,.marks i::after{{content:"";position:absolute;background:#000;}}
-.marks i::before{{height:.5px;width:13px;}}
-.marks i::after{{width:.5px;height:13px;}}
+.marks i::before{{height:1px;width:19px;}}
+.marks i::after{{width:1px;height:19px;}}
 .marks .tl{{left:{MARKS_PX + BLEED_PX}px;top:{MARKS_PX + BLEED_PX}px;}}
-.marks .tl::before{{left:-16px;top:0;}}      .marks .tl::after{{top:-16px;left:0;}}
+.marks .tl::before{{left:-{BLEED_PX + 19}px;top:0;}}      .marks .tl::after{{top:-{BLEED_PX + 19}px;left:0;}}
 .marks .tr{{right:{MARKS_PX + BLEED_PX}px;top:{MARKS_PX + BLEED_PX}px;}}
-.marks .tr::before{{right:-16px;top:0;}}     .marks .tr::after{{top:-16px;right:0;}}
+.marks .tr::before{{right:-{BLEED_PX + 19}px;top:0;}}     .marks .tr::after{{top:-{BLEED_PX + 19}px;right:0;}}
 .marks .bl{{left:{MARKS_PX + BLEED_PX}px;bottom:{MARKS_PX + BLEED_PX}px;}}
-.marks .bl::before{{left:-16px;bottom:0;}}   .marks .bl::after{{bottom:-16px;left:0;}}
+.marks .bl::before{{left:-{BLEED_PX + 19}px;bottom:0;}}   .marks .bl::after{{bottom:-{BLEED_PX + 19}px;left:0;}}
 .marks .br{{right:{MARKS_PX + BLEED_PX}px;bottom:{MARKS_PX + BLEED_PX}px;}}
-.marks .br::before{{right:-16px;bottom:0;}}  .marks .br::after{{bottom:-16px;right:0;}}
-.folio{{position:absolute;left:0;right:0;bottom:5px;text-align:center;font:9px/1 monospace;color:#888;}}
+.marks .br::before{{right:-{BLEED_PX + 19}px;bottom:0;}}  .marks .br::after{{bottom:-{BLEED_PX + 19}px;right:0;}}
+.folio{{position:absolute;left:0;right:0;bottom:4px;text-align:center;font:8px/1 monospace;color:#444;}}
 """
 
 _SECTION_RE = re.compile(r'<section class="page.*?</section>', re.S)
