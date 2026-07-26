@@ -2,6 +2,21 @@
 
 Cible visée : **PC récent, GPU AMD, Ubuntu**. Relevé du 2026-07-26.
 
+## Deux chemins, et lequel choisir
+
+| | Docker | Installation native |
+|---|---|---|
+| Commande | `docker run … ghcr.io/obareau/iris` | `./setup.sh` |
+| Plateformes | Linux, Windows, macOS (amd64 et arm64) | Linux |
+| GPU | **non** — processeur seulement | oui (NVIDIA, AMD/ROCm) |
+| Poids | ~3,7 Go | ~8 Go de venv + 10 Go de modèles |
+| Pour qui | essayer, montrer, dépanner | usage réel |
+
+**Docker n'accélère rien** : l'image tourne sur processeur parce qu'une image ne
+peut pas embarquer les trois roues PyTorch (CUDA, ROCm, CPU). Pour trier
+sérieusement des photos, c'est l'installation native qu'il faut. Le détail de la
+commande Docker est dans le [README](README.md#ou-sans-rien-installer-docker).
+
 ---
 
 ## La bonne nouvelle : le code n'a pas à changer

@@ -1,8 +1,21 @@
 # Iris — Changelog
 
-## [0.5.0] — 2026-07-26 · Zine & cartels d'œuvre
+## [0.5.0] — 2026-07-26 · Zine, cartels d'œuvre & distribution
 
 ### Ajouté
+- **Image Docker** publiée sur `ghcr.io/obareau/iris`, construite par GitHub
+  Actions pour **amd64 et arm64** (runners natifs, pas d'émulation). Aucune
+  infrastructure à tenir : GitHub héberge et sert. Image **processeur
+  uniquement** — une image ne peut pas embarquer les trois roues PyTorch.
+- **Mise à jour depuis l'interface** : pastille dans la barre du haut quand une
+  version existe, modale listant ce qui sera installé, redémarrage et
+  rechargement automatiques. Plus un timer systemd optionnel
+  (`install-autoupdate.sh`) pour les machines où personne ne code — c'est
+  précisément ce qui le rend sûr.
+- **Version et build sous le logo**, lus du CHANGELOG et de git : l'affichage ne
+  peut pas mentir sur ce qui tourne.
+- `setup.sh` **détecte le GPU** (NVIDIA / AMD / aucun) et vérifie les binaires
+  système ; il était figé sur CUDA 12.1 depuis le commit initial.
 - **Zine 8 pages sur une feuille pliée** — objet promo tiré chez soi à l'unité,
   sans reliure ni minimum de commande. Formats A4 (pages 74 × 105 mm) et A3
   (105 × 148 mm), pages de texte au choix (lore canon, descriptions extraites,
