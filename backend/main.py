@@ -26,6 +26,7 @@ import mounts
 import organizer
 import portfolio as portfolio_module
 import artbook as artbook_module
+import zine as zine_module
 import prefilter
 import scanner
 
@@ -1057,6 +1058,65 @@ def artbook_build(req: ArtbookRequest):
     artbook_module.save_model(model)
     out_path, stats = artbook_module.render_model(model)
     return {"id": model["id"], "url": f"/exports/{out_path.name}", "model": model, **stats}
+
+
+class ZineRequest(BaseModel):
+    paths: list[str]
+    title: str = "ROBOTARIIS"
+    subtitle: str = ""
+    sheet: str = "A4"            # A4 (zine A7 de poche) ou A3 (zine A6)
+    text_mode: str = "lore"      # lore | description | quote | none
+    n_text: int = 2
+    url: str = ""
+    email: str = ""
+    algo: str = "clustered-dot"  # trame : voir backend/dither.py
+    dot_scale: int = 1
+    contrast: float = 1.15
+    colophon: str = ""
+    guides: bool = True          # repères de pli/coupe (à décocher pour le tirage final)
+
+
+@app.post("/api/zine")
+def zine_build(req: ZineRequest):
+    """Compose un zine 8 pages sur UNE feuille pliée, images tramées en 1 bit
+    (pensé pour la photocopie) et QR au dos."""
+    if not req.paths:
+        raise HTTPException(400, "Aucune photo sélectionnée")
+    if req.sheet not in zine_module.SHEETS:
+        raise HTTPException(400, f"Format inconnu : {req.sheet}")
+    try:
+        pages = zine_module.compose_zine(
+            req.paths, title=req.title, subtitle=req.subtitle, sheet=req.sheet,
+            text_mode=req.text_mode, n_text=req.n_text, url=req.url, email=req.email,
+            algo=req.algo, dot_scale=req.dot_scale, contrast=req.contrast,
+            colophon=req.colophon)
+        html = zine_module.render_sheet(pages, req.sheet, req.title, req.guides)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    from datetime import datetime
+    out = EXPORTS_DIR / f"zine-{artbook_module._slugify(req.title)}-{datetime.now():%Y%m%d-%H%M%S}.html"
+    out.write_text(html, encoding="utf-8")
+    return {"url": f"/exports/{out.name}", "sheet": req.sheet,
+            "dims": zine_module.SHEETS[req.sheet], "fold": zine_module.FOLD_NOTE}
+
+
+@app.post("/api/zine/pdf")
+def zine_pdf(req: ZineRequest):
+    """Même chose, mais en PDF prêt à imprimer."""
+    r = zine_build(req)
+    html_path = EXPORTS_DIR / Path(r["url"]).name
+    pdf_path = html_path.with_suffix(".pdf")
+    chrome = artbook_module._find_chrome() if hasattr(artbook_module, "_find_chrome") else None
+    import shutil as _sh
+    chrome = chrome or _sh.which("google-chrome") or _sh.which("chromium") or _sh.which("brave-browser")
+    if not chrome:
+        raise HTTPException(500, "Aucun navigateur trouvé pour l'export PDF")
+    subprocess.run([chrome, "--headless=new", "--disable-gpu", "--no-sandbox",
+                    f"--print-to-pdf={pdf_path}", "--no-pdf-header-footer",
+                    f"file://{html_path}"], check=False, capture_output=True, timeout=300)
+    if not pdf_path.is_file():
+        raise HTTPException(500, "Le navigateur n'a pas produit de PDF")
+    return {**r, "url": f"/exports/{pdf_path.name}"}
 
 
 @app.get("/api/artbook")

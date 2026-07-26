@@ -3549,3 +3549,68 @@ $("fmBrowse").addEventListener("click", () => {
   browseLoad(fmBrowseTarget.value || null);
 });
 folderModal.addEventListener("click", (e) => { if (e.target === folderModal) folderModal.hidden = true; });
+
+// ===== Zine : 8 pages sur une feuille pliée ===============================
+// Trames portées de MONO° (~/DEV/mono), imposition reprise de Recta/zine-gen.ts.
+const zineModal = $("zineModal");
+const znState = { sheet: "A4", text: "lore", algo: "clustered-dot" };
+const ZN_SHEET_HINT = {
+  A4: "→ zine de poche, pages 74 × 105 mm — s'imprime chez toi",
+  A3: "→ zine A6, pages 105 × 148 mm — demande une imprimante A3",
+};
+const ZN_ALGO_HINT = {
+  "clustered-dot": "Les points s'agglomèrent comme sur une presse — celle qui survit le mieux à la photocopie.",
+  "atkinson": "Ne diffuse que 6/8 de l'erreur : très contrasté, blancs francs. Le rendu MacPaint.",
+  "floyd-steinberg": "Détail maximal, mais son bruit fin se bouche à la photocopie — réserve-la au laser direct.",
+  "threshold": "Aucun tramage, noir ou blanc pur. Pour le trait et les aplats, pas pour une photo.",
+};
+
+$("galBulkZineBtn").addEventListener("click", () => {
+  if (galSelectedPaths.size < 1) { alert("Sélectionne au moins une photo."); return; }
+  zineModal.hidden = false;
+});
+$("znClose").addEventListener("click", () => { zineModal.hidden = true; });
+zineModal.addEventListener("click", e => { if (e.target === zineModal) zineModal.hidden = true; });
+
+function znPick(group, attr, key) {
+  zineModal.querySelectorAll(`[data-${attr}]`).forEach(b => b.addEventListener("click", () => {
+    zineModal.querySelectorAll(`[data-${attr}]`).forEach(x => x.classList.remove("on"));
+    b.classList.add("on");
+    znState[key] = b.dataset[attr];
+    if (key === "sheet") $("znSheetHint").textContent = ZN_SHEET_HINT[znState.sheet];
+    if (key === "algo") $("znAlgoHint").textContent = ZN_ALGO_HINT[znState.algo];
+  }));
+}
+znPick(null, "sheet", "sheet"); znPick(null, "text", "text"); znPick(null, "algo", "algo");
+
+function znPayload() {
+  return {
+    paths: [...galSelectedPaths],
+    title: $("znTitle").value || "ZINE",
+    subtitle: $("znSub").value || "",
+    sheet: znState.sheet,
+    text_mode: znState.text,
+    n_text: parseInt($("znNText").value || "0", 10),
+    url: $("znUrl").value || "",
+    email: $("znEmail").value || "",
+    algo: znState.algo,
+    guides: $("znGuides").checked,
+  };
+}
+
+async function znBuild(endpoint, btn) {
+  const label = btn.textContent;
+  btn.disabled = true; btn.textContent = "Composition…";
+  try {
+    const r = await fetch(endpoint, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(znPayload()),
+    });
+    if (!r.ok) { alert("Erreur : " + (await r.text())); return; }
+    const d = await r.json();
+    $("znFold").textContent = d.fold || "";
+    window.open(d.url, "_blank");
+  } finally { btn.disabled = false; btn.textContent = label; }
+}
+$("znPreview").addEventListener("click", e => znBuild("/api/zine", e.currentTarget));
+$("znPdf").addEventListener("click", e => znBuild("/api/zine/pdf", e.currentTarget));

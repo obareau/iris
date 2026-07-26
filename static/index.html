@@ -273,6 +273,7 @@
           <button id="galBulkPriceShowBtn" class="btn ghost">Afficher les prix</button>
           <button id="galBulkExportBtn" class="btn ghost">Exporter en planche contact</button>
           <button id="galBulkArtbookBtn" class="btn ghost">📖 Composer un artbook</button>
+          <button id="galBulkZineBtn" class="btn ghost">📰 Zine (1 feuille)</button>
           <button id="galBulkDeleteBtn" class="btn ghost" style="color:var(--err);border-color:var(--err)">Supprimer la sélection</button>
         </div>
       </div>
@@ -522,6 +523,57 @@
 </div>
 
 <!-- Modale de navigation dossiers -->
+<!-- Zine : 8 pages sur une feuille pliée -->
+<div id="zineModal" class="wiz-overlay" hidden>
+  <div class="wiz" style="width:min(660px,96vw)">
+    <div class="wiz-head">
+      <strong>Zine — 8 pages sur une feuille</strong>
+      <span class="sp" style="flex:1"></span>
+      <button class="btn ghost" id="znClose">✕</button>
+    </div>
+    <div class="wiz-body">
+      <div class="wiz-row">
+        <label>Titre (couverture)<input id="znTitle" type="text" value="ROBOTARIIS" /></label>
+        <label>Sous-titre<input id="znSub" type="text" placeholder="fragments d'antenne" /></label>
+      </div>
+      <div class="wiz-label">Format de feuille</div>
+      <div class="wiz-units">
+        <button type="button" class="wiz-unit on" data-sheet="A4">A4</button>
+        <button type="button" class="wiz-unit" data-sheet="A3">A3</button>
+        <span class="zn-hint" id="znSheetHint">→ zine de poche, pages 74 × 105 mm — s'imprime chez toi</span>
+      </div>
+      <div class="wiz-label">Pages de texte <small>— entre les œuvres</small></div>
+      <div class="wiz-units">
+        <button type="button" class="wiz-unit txt on" data-text="lore">Lore</button>
+        <button type="button" class="wiz-unit txt" data-text="description">Descriptions</button>
+        <button type="button" class="wiz-unit txt" data-text="quote">Citations</button>
+        <button type="button" class="wiz-unit txt" data-text="none">Aucune</button>
+        <label class="zn-n">combien <input id="znNText" type="number" min="0" max="6" value="2" /></label>
+      </div>
+      <div class="wiz-label">Trame noir &amp; blanc <small>— une photocopieuse ne sait pas faire de gris</small></div>
+      <div class="wiz-units">
+        <button type="button" class="wiz-unit dth on" data-algo="clustered-dot">Trame AM</button>
+        <button type="button" class="wiz-unit dth" data-algo="atkinson">Atkinson</button>
+        <button type="button" class="wiz-unit dth" data-algo="floyd-steinberg">Floyd–S.</button>
+        <button type="button" class="wiz-unit dth" data-algo="threshold">Seuil</button>
+      </div>
+      <div class="zn-hint" id="znAlgoHint">Les points s'agglomèrent comme sur une presse — celle qui survit le mieux à la photocopie.</div>
+      <div class="wiz-label">Dos du zine</div>
+      <div class="wiz-row">
+        <label>Site (QR)<input id="znUrl" type="text" value="https://robotariis.com" /></label>
+        <label>Email<input id="znEmail" type="text" value="olivier@robotariis.com" /></label>
+      </div>
+      <label class="wiz-tog"><input type="checkbox" id="znGuides" checked>
+        <span><strong>Repères de pli et de coupe</strong><small>à décocher pour le tirage final</small></span></label>
+    </div>
+    <div class="wiz-foot">
+      <span class="wiz-hint" id="znFold"></span>
+      <button class="btn ghost" id="znPreview">Aperçu ▸</button>
+      <button class="btn primary" id="znPdf">PDF ⤓</button>
+    </div>
+  </div>
+</div>
+
 <!-- Dossier invalide : on explique et on propose de corriger -->
 <div id="folderModal" class="modal" hidden>
   <div class="modal-box">
