@@ -1410,3 +1410,8 @@ input[type=range] { accent-color: var(--accent); }
 .field-check small { display: block; margin-top: 3px; color: var(--faint); font-size: 11px; }
 /* poignée de redimensionnement du textarea (blanche par défaut en sombre) */
 textarea::-webkit-resizer { background: var(--field); border-right: 2px solid var(--faint); border-bottom: 2px solid var(--faint); }
+.ab-editor .ab-menu-right { left: auto; right: 0; min-width: 300px; }
+.ab-editor .ab-menu button { align-items: flex-start; }
+.ab-editor .ab-menu button small { display: block; color: var(--faint2); font-size: 10.5px; margin-top: 2px; line-height: 1.4; }
+.ab-editor .ab-menu button > em { margin-top: 1px; font-size: 9.5px; letter-spacing: .04em; width: 34px; }
+.ab-editor .ab-menu button span { display: flex; flex-direction: column; }

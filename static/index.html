@@ -603,7 +603,16 @@
     <div class="ab-bar-right">
       <button class="ab-btn" id="abPreviewToggle" title="Aperçu live à côté de l'éditeur">Aperçu live</button>
       <button class="ab-btn" id="abRegen" title="Ouvrir le rendu dans un onglet">Rendu ▸</button>
-      <button class="ab-btn" id="abPdfPrint" title="Fichier imprimeur : format fini + 3 mm de fond perdu, ~300 dpi, sans repères (Blurb / Lulu / Pixartprinting). Maj+clic : avec équerres de coupe, pour un imprimeur d’atelier.">Imprimeur ⤓</button>
+      <div class="ab-menu-wrap">
+        <button class="ab-btn" id="abPdfPrint" aria-haspopup="true" aria-expanded="false">Imprimeur<span class="ab-caret">▾</span></button>
+        <div class="ab-menu ab-menu-right" id="abPrintMenu" hidden>
+          <div class="ab-menu-sec">Livre photo en ligne</div>
+          <button data-print="rgb"><em>RVB</em>Blurb · Lulu<small>216 mm, fond perdu 3 mm, sans repères — leur RIP sépare</small></button>
+          <div class="ab-menu-sec">Imprimeur pro</div>
+          <button data-print="cmyk"><em>CMJN</em>Pixartprinting<small>Fogra 39, noir sur une seule plaque, 300 dpi</small></button>
+          <button data-print="atelier"><em>✛</em>Atelier<small>CMJN + traits de coupe, feuille 226 mm</small></button>
+        </div>
+      </div>
       <button class="ab-btn primary" id="abPdf">Export PDF</button>
     </div>
   </div>

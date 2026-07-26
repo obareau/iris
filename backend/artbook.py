@@ -968,6 +968,17 @@ html,body{{background:#fff;margin:0;padding:0;}}
 .page-full figcaption{{left:{SAFE_PX}px;right:{SAFE_PX}px;bottom:{SAFE_PX}px;padding:4mm 5mm;}}
 .page-pirate .pir-band{{top:{SAFE_PX}px;left:{SAFE_PX}px;right:{SAFE_PX}px;}}
 .page-cover .cover-text,.page-backcover .bc-inner{{margin:0 {SAFE_PX - 30}px;}}
+/* Noir pur pour le texte : à la séparation, un « presque noir » (#1a1a1a) part
+   en quadri (~290 % d'encre, 4 plaques à faire coïncider sur du petit texte).
+   En noir pur, Ghostscript le sépare en 100 % noir — une seule plaque, pas de
+   frange de repérage. Les couleurs voulues (Recta, laiton, pirate) ne bougent pas. */
+:root{{--ink:#000;}}
+.page,.tx-body,.rc-body,.pt-body,.ins-body,.bc-blurb,.dd-text,
+.cover-title,.ch-title,.tx-heading,.q-text,.rc-quote,.gd-title,
+.pt-head,.ins-heading,.fill-big,.pir-head{{color:#000;}}
+.page-cover,.page-cover .cover-title,.page-cover .cover-sub,.page-cover .cover-kicker,
+.page-backcover,.page-backcover .bc-blurb,.page-pirate,.page-pirate .pir-text,
+.page-full figcaption,.page-grid figcaption{{color:#fff;}}
 """
 
 # Profil « en ligne » : la feuille EST le format fini + fond perdu, rien autour.
@@ -1048,10 +1059,102 @@ import shutil
 import subprocess
 
 
-def render_pdf(model: dict, print_mode: bool = False, marks: bool = False) -> Path:
+# Profil de séparation demandé par les imprimeurs européens (Pixartprinting :
+# « CMJN, profil Fogra 39 »). Fourni par le paquet Debian colord-data.
+ICC_FOGRA39 = Path("/usr/share/color/icc/colord/FOGRA39L_coated.icc")
+
+
+def _pdf_pages(path: Path) -> int:
+    """Nombre de pages, via poppler (pdfinfo). 0 si indéterminable."""
+    try:
+        out = subprocess.run(["pdfinfo", str(path)], capture_output=True, text=True, timeout=60).stdout
+        m = re.search(r"^Pages:\s+(\d+)", out, re.M)
+        return int(m.group(1)) if m else 0
+    except Exception:
+        return 0
+
+
+_RGB_OP = re.compile(rb'(?<![\d.])([0-9]*\.?[0-9]+)\s+([0-9]*\.?[0-9]+)\s+([0-9]*\.?[0-9]+)\s+(rg|RG)\b')
+
+
+def _neutrals_to_gray(src: Path) -> Path:
+    """Passe les aplats NEUTRES (r=v=b : noir, gris, blanc) en DeviceGray.
+
+    Sans ça, Chromium écrit le texte en « 0 0 0 rg » (noir RVB) et la séparation
+    ICC le rend en noir riche — ~300 % d'encre sur quatre plaques, qui doivent
+    coïncider au poil sur du petit texte, sinon frange de repérage. En gris, il
+    part sur la seule plaque noire (`-dDeviceGrayToK`). Les vraies couleurs
+    (rouge Recta, laiton, ambre pirate) ne sont pas touchées.
+
+    La substitution garde la longueur d'origine (padding par des espaces) :
+    les opérateurs PDF sont séparés par des blancs, la syntaxe reste valide.
+    """
+    import pikepdf
+    dst = src.with_name(src.stem + "-k.pdf")
+    pdf = pikepdf.open(src)
+
+    def rep(m):
+        r, g, b = (float(m.group(i)) for i in (1, 2, 3))
+        if max(r, g, b) - min(r, g, b) > 0.02:   # couleur → laissée en quadri
+            return m.group(0)
+        op = b"g" if m.group(4) == b"rg" else b"G"
+        return (f"{r:.3f} ".encode() + op).ljust(len(m.group(0)))
+
+    for page in pdf.pages:
+        pg = pikepdf.Page(page)
+        pg.contents_coalesce()
+        data = bytes(pg.obj.Contents.read_bytes())
+        new = _RGB_OP.sub(rep, data)
+        if new != data:
+            pg.obj.Contents = pdf.make_stream(new)
+    pdf.save(dst)
+    return dst
+
+
+def to_cmyk(src: Path, icc: Path = ICC_FOGRA39) -> Path:
+    """Sépare un PDF RVB en CMJN avec un profil ICC (Fogra 39 par défaut).
+
+    ⚠️ Ghostscript 10.06 sort en code 1 sur nos fichiers *tout en produisant un
+    PDF valide* : on valide donc l'ARTEFACT (existence + même nombre de pages),
+    pas le code de retour. `-dBlackText`/`-dBlackVector` gardent le texte noir
+    sur la seule plaque noire (le CSS d'impression le passe en noir pur) : une
+    plaque au lieu de quatre, donc pas de frange de repérage sur le petit texte.
+    """
+    if not shutil.which("gs"):
+        raise RuntimeError("Ghostscript (gs) introuvable — impossible de séparer en CMJN")
+    dst = src.with_name(src.stem + "-cmjn.pdf")
+    # 1) neutres → DeviceGray, pour que le noir tienne sur une seule plaque
+    try:
+        prepared = _neutrals_to_gray(src)
+    except Exception:
+        prepared = src          # pikepdf absent : on sépare quand même (noir riche)
+    cmd = [
+        "gs", "-dSAFER", "-dBATCH", "-dNOPAUSE", "-sDEVICE=pdfwrite",
+        "-dProcessColorModel=/DeviceCMYK", "-sColorConversionStrategy=CMYK",
+        "-dDeviceGrayToK=true",
+        # on ne rééchantillonne pas : la définition vient déjà des photos source
+        "-dDownsampleColorImages=false", "-dDownsampleGrayImages=false",
+        "-dAutoFilterColorImages=false", "-dColorImageFilter=/DCTEncode", "-dJPEGQ=95",
+        "-dCompatibilityLevel=1.4",
+    ]
+    if icc.is_file():
+        cmd.append(f"-sOutputICCProfile={icc}")
+    cmd += ["-o", str(dst), str(prepared)]
+    proc = subprocess.run(cmd, capture_output=True, text=True, timeout=900)
+    n_src, n_dst = _pdf_pages(src), _pdf_pages(dst)
+    if prepared != src:
+        prepared.unlink(missing_ok=True)   # fichier intermédiaire
+    if not dst.is_file() or dst.stat().st_size < 1024 or (n_src and n_dst != n_src):
+        raise RuntimeError(
+            f"Séparation CMJN échouée ({n_dst}/{n_src} pages) : {proc.stderr[-400:]}")
+    return dst
+
+
+def render_pdf(model: dict, print_mode: bool = False, marks: bool = False, cmyk: bool = False) -> Path:
     """Rend le modèle en HTML puis en PDF via chromium headless (respecte @page).
     print_mode : fichier papier (fond perdu 3 mm, ~300 dpi, zone tranquille).
-    marks : équerres de coupe (imprimeur d'atelier uniquement)."""
+    marks : équerres de coupe (imprimeur d'atelier uniquement).
+    cmyk : sépare en CMJN Fogra 39 (exigé par les imprimeurs européens)."""
     html_path, _ = render_model(model, print_mode=print_mode, marks=marks)
     pdf_path = html_path.with_suffix(".pdf")
     chrome = shutil.which("google-chrome") or shutil.which("google-chrome-stable") \
@@ -1066,6 +1169,8 @@ def render_pdf(model: dict, print_mode: bool = False, marks: bool = False) -> Pa
     )
     if not pdf_path.is_file():
         raise RuntimeError("chromium n'a pas produit de PDF")
+    if print_mode and cmyk:
+        pdf_path = to_cmyk(pdf_path)
     return pdf_path
 
 

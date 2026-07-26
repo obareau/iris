@@ -9,3 +9,4 @@ einops
 accelerate
 ultralytics
 piexif
+pikepdf

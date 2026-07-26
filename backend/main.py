@@ -1023,7 +1023,7 @@ def artbook_pad(mid: str, req: PadRequest):
 
 
 @app.post("/api/artbook/{mid}/pdf")
-def artbook_pdf(mid: str, req: ArtbookModel, print_mode: bool = False, marks: bool = False):
+def artbook_pdf(mid: str, req: ArtbookModel, print_mode: bool = False, marks: bool = False, cmyk: bool = False):
     """Sauve le modèle et l'exporte en PDF (chromium headless).
     print_mode=1 : fichier papier (fond perdu 3 mm, ~300 dpi, zone tranquille).
     marks=1 : ajoute les équerres de coupe — réservé à un imprimeur d'atelier,
@@ -1032,10 +1032,10 @@ def artbook_pdf(mid: str, req: ArtbookModel, print_mode: bool = False, marks: bo
     model["id"] = mid
     artbook_module.save_model(model)
     try:
-        pdf_path = artbook_module.render_pdf(model, print_mode=print_mode, marks=marks)
+        pdf_path = artbook_module.render_pdf(model, print_mode=print_mode, marks=marks, cmyk=cmyk)
     except Exception as e:
         raise HTTPException(400, f"Export PDF échoué : {e}")
-    return {"id": mid, "url": f"/exports/{pdf_path.name}", "print": print_mode, "marks": marks}
+    return {"id": mid, "url": f"/exports/{pdf_path.name}", "print": print_mode, "marks": marks, "cmyk": cmyk}
 
 
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")

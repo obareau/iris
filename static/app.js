@@ -2449,11 +2449,11 @@ document.getElementById("abRegen").addEventListener("click", async () => {
 });
 
 // export PDF (chromium headless côté serveur)
-async function abExportPdf(btn, printMode, marks = false) {
+async function abExportPdf(btn, printMode, marks = false, cmyk = false) {
   const label = btn.textContent;
   btn.disabled = true; btn.textContent = printMode ? "Fichier imprimeur…" : "PDF en cours…";
   try {
-    const res = await fetch(`/api/artbook/${abId}/pdf?print_mode=${printMode ? "true" : "false"}&marks=${marks ? "true" : "false"}`, {
+    const res = await fetch(`/api/artbook/${abId}/pdf?print_mode=${printMode ? "true" : "false"}&marks=${marks ? "true" : "false"}&cmyk=${cmyk ? "true" : "false"}`, {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ model: abModel }),
     });
@@ -2465,9 +2465,26 @@ async function abExportPdf(btn, printMode, marks = false) {
   }
 }
 document.getElementById("abPdf").addEventListener("click", (e) => abExportPdf(e.currentTarget, false));
-// Maj+clic = profil « atelier » (avec équerres) ; clic simple = profil en ligne
-// (Blurb/Lulu/Pixartprinting : fond perdu seul, aucun repère).
-document.getElementById("abPdfPrint").addEventListener("click", (e) => abExportPdf(e.currentTarget, true, e.shiftKey));
+
+// Menu imprimeur : chaque destination a ses exigences (vérifiées le 2026-07-26).
+const abPrintBtn = document.getElementById("abPdfPrint");
+const abPrintMenu = document.getElementById("abPrintMenu");
+abPrintBtn.addEventListener("click", (e) => {
+  e.stopPropagation();
+  const open = abPrintMenu.hidden;
+  abPrintMenu.hidden = !open;
+  abPrintBtn.setAttribute("aria-expanded", String(open));
+});
+document.addEventListener("click", (e) => {
+  if (!abPrintMenu.hidden && !abPrintMenu.contains(e.target) && e.target !== abPrintBtn) {
+    abPrintMenu.hidden = true; abPrintBtn.setAttribute("aria-expanded", "false");
+  }
+});
+abPrintMenu.querySelectorAll("[data-print]").forEach(b => b.addEventListener("click", () => {
+  const k = b.dataset.print;
+  abPrintMenu.hidden = true; abPrintBtn.setAttribute("aria-expanded", "false");
+  abExportPdf(abPrintBtn, true, k === "atelier", k !== "rgb");
+}));
 
 galBulkDeleteBtn.addEventListener("click", async () => {
   const paths = [...galSelectedPaths];
