@@ -1,0 +1,60 @@
+name: Image Docker
+
+# Construit l'image sur les serveurs de GitHub et la pousse dans ghcr.io.
+# Rien ne passe par la machine de développement : ni le build, ni le stockage,
+# ni la bande passante. Gratuit et illimité sur un dépôt public.
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+    # Ne pas reconstruire une image de 2 Go pour une virgule dans un .md.
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+  workflow_dispatch:        # bouton « Run workflow » dans l'onglet Actions
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE: ${{ github.repository }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write       # requis pour pousser dans ghcr.io
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Connexion à ghcr.io
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          # Jeton fourni automatiquement par GitHub : aucun secret à créer.
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Étiquettes
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=ref,event=tag
+            type=sha,format=short
+
+      - name: Construction et publication
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # Le cache évite de réinstaller PyTorch (le plus gros morceau) à
+          # chaque exécution : quelques minutes gagnées par build.
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

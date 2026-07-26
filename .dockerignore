@@ -1,0 +1,16 @@
+# Ce qui n'a rien à faire dans l'image — surtout : ne pas y embarquer
+# l'environnement virtuel de la machine hôte, ni des Go de rendus.
+venv/
+__pycache__/
+*.pyc
+data/
+exports/
+models/
+*.pt
+*.onnx
+*.pth
+server.log
+update.log
+.git/
+docs/img/
+.DS_Store

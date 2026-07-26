@@ -254,6 +254,24 @@ Fogra 39) et dit quoi installer s'il en manque.
 
 Forcer un mode : `./setup.sh --cuda` · `--rocm` · `--cpu`.
 
+### Ou sans rien installer (Docker)
+
+```bash
+docker run -p 8800:8800 \
+  -v ~/Photos:/photos \
+  -v iris-models:/root/.cache/huggingface \
+  -v iris-data:/app/data \
+  ghcr.io/obareau/iris
+```
+
+L'image est **CPU** : fonctionnelle partout, mais lente. Une image ne peut pas
+embarquer les trois roues PyTorch (CUDA, ROCm, CPU) — il en faudrait trois, de 6
+à 10 Go chacune. Qui a un GPU a une machine équipée et lance `./setup.sh`, qui
+gère les trois cas.
+
+Le volume sur le cache HuggingFace évite de re-télécharger les ~10 Go de modèles
+à chaque conteneur.
+
 Sans GPU, Iris bascule sur le processeur : fonctionnel, mais lent. Les modèles
 (~10 Go) se téléchargent au premier usage.
 
