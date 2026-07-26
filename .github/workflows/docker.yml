@@ -3,15 +3,19 @@ name: Image Docker
 # Construit l'image sur les serveurs de GitHub et la pousse dans ghcr.io.
 # Rien ne passe par la machine de développement : ni le build, ni le stockage,
 # ni la bande passante. Gratuit et illimité sur un dépôt public.
+#
+# Deux architectures, chacune construite sur un runner de SA propre architecture
+# (GitHub en fournit des arm64 gratuits sur les dépôts publics). Pas d'émulation
+# QEMU : c'est plusieurs fois plus rapide, et ça évite les plantages classiques
+# de compilation de roues Python sous émulation.
 on:
   push:
     branches: [main]
     tags: ["v*"]
-    # Ne pas reconstruire une image de 2 Go pour une virgule dans un .md.
-    paths-ignore:
+    paths-ignore:          # ne pas reconstruire des Go pour une virgule dans un .md
       - "**.md"
       - "docs/**"
-  workflow_dispatch:        # bouton « Run workflow » dans l'onglet Actions
+  workflow_dispatch:
 
 env:
   REGISTRY: ghcr.io
@@ -19,14 +23,20 @@ env:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false     # si arm64 casse, amd64 doit quand même être publié
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-latest
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm     # Apple Silicon, Raspberry Pi, serveurs Arm
+    runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
-      packages: write       # requis pour pousser dans ghcr.io
-
+      packages: write
     steps:
       - uses: actions/checkout@v4
-
       - uses: docker/setup-buildx-action@v3
 
       - name: Connexion à ghcr.io
@@ -34,7 +44,52 @@ jobs:
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
-          # Jeton fourni automatiquement par GitHub : aucun secret à créer.
+          password: ${{ secrets.GITHUB_TOKEN }}   # fourni par GitHub, aucun secret à créer
+
+      - name: Construction et publication (par empreinte)
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: ${{ matrix.platform }}
+          build-args: |
+            IRIS_BUILD=${{ github.sha }}
+          # Chaque architecture est poussée sans étiquette ; le job suivant les
+          # rassemble sous un seul nom. Sinon la seconde écraserait la première.
+          outputs: type=image,name=${{ env.REGISTRY }}/${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=${{ matrix.platform }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.platform }}
+
+      - name: Conserver l'empreinte
+        run: |
+          mkdir -p /tmp/digests
+          touch "/tmp/digests/${{ steps.build.outputs.digest }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: digest-${{ strategy.job-index }}
+          path: /tmp/digests/*
+          retention-days: 1
+
+  # Rassemble les deux architectures sous une seule étiquette : `docker pull`
+  # choisit alors tout seul la bonne image selon la machine.
+  manifest:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: /tmp/digests
+          pattern: digest-*
+          merge-multiple: true
+
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Étiquettes
@@ -47,16 +102,14 @@ jobs:
             type=ref,event=tag
             type=sha,format=short
 
-      - name: Construction et publication
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          push: true
-          build-args: |
-            IRIS_BUILD=${{ github.sha }}
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          # Le cache évite de réinstaller PyTorch (le plus gros morceau) à
-          # chaque exécution : quelques minutes gagnées par build.
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+      - name: Assemblage du manifeste multi-architecture
+        working-directory: /tmp/digests
+        run: |
+          docker buildx imagetools create \
+            $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< '${{ steps.meta.outputs.json }}') \
+            $(printf '${{ env.REGISTRY }}/${{ env.IMAGE }}@sha256:%s ' *)
+
+      - name: Vérification
+        run: |
+          docker buildx imagetools inspect \
+            ${{ env.REGISTRY }}/${{ env.IMAGE }}:latest
