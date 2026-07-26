@@ -175,7 +175,43 @@ def _price_grid_rows(groups: dict) -> list:
     return rows
 
 
+# ── Cartel d'œuvre ────────────────────────────────────────────────────────
+# Les cinq champs d'un cartel de catalogue d'exposition. Stockés comme des
+# attributs ordinaires dans le sidecar : ils héritent gratuitement de l'édition
+# en masse, du masquage, des facettes de la Galerie et de l'écriture EXIF.
+ARTWORK_FIELDS = ["Nom", "Technique", "Taille", "Année", "Pays"]
+
+
+def _cartel(item: dict) -> dict:
+    """Les lignes d'un cartel, dans la convention des catalogues :
+
+        Titre de l'œuvre, année
+        Technique, dimensions
+        Pays
+
+    Chaque ligne disparaît si elle est vide — un cartel incomplet reste juste,
+    un cartel avec des trous serait bancal.
+    """
+    title = _attr(item, "Nom") or item.get("character_name") or ""
+    year = _attr(item, "Année") or ""
+    technique = _attr(item, "Technique") or ""
+    size = _attr(item, "Taille") or ""
+    country = _attr(item, "Pays") or ""
+    return {
+        "title": title,
+        "line1": ", ".join(x for x in (title, year) if x),
+        "line2": ", ".join(x for x in (technique, size) if x),
+        "line3": country,
+        "any": any((title, year, technique, size, country)),
+    }
+
+
 def _caption(item: dict) -> str:
+    """Légende d'une image. Si l'œuvre est documentée, on donne le cartel ;
+    sinon on retombe sur le nom de personnage / la catégorie."""
+    c = _cartel(item)
+    if c["any"]:
+        return " · ".join(x for x in (c["line1"], c["line2"], c["line3"]) if x)
     bits = []
     if item.get("character_name"):
         bits.append(item["character_name"])
@@ -471,9 +507,12 @@ def compose_model(paths, title="Iris Artbook", subtitle="", chapter_by="category
                 rows = []
                 for path in chunk:
                     it = by_path.get(path, {})
+                    c = _cartel(it)
                     rows.append({
                         "path": path,
-                        "heading": it.get("character_name") or _attr(it, "Nom") or it.get("category_label") or "",
+                        "heading": c["title"] or it.get("character_name") or it.get("category_label") or "",
+                        "cartel": [c["line2"], c["line3"]] if c["any"] else [],
+                        "year": _attr(it, "Année") or "",
                         "ref": _attr(it, "Référence") or "",
                         "price": _attr(it, "Prix") or "",
                         "body": it.get("details") or "",
@@ -786,11 +825,14 @@ def _render_page(pg: dict, meta: dict) -> str:
         rows_html = []
         for r in pg.get("rows", []):
             img = f'<div class="pl-img"><img src="{_data_uri(Path(r["path"]), GRID_MAX)}" alt="" /></div>'
-            head = f'<div class="pl-name">{_escape(r.get("heading",""))}</div>' if r.get("heading") else ""
+            # Titre + année sur la même ligne, comme sur un cartel accroché au mur
+            year = f'<span class="pl-year">, {_escape(r["year"])}</span>' if r.get("year") else ""
+            head = f'<div class="pl-name">{_escape(r.get("heading",""))}{year}</div>' if r.get("heading") else ""
+            cartel = "".join(f'<div class="pl-cartel">{_escape(l)}</div>' for l in (r.get("cartel") or []) if l)
             ref = f'<div class="pl-ref">Référence : <b>{_escape(r["ref"])}</b></div>' if r.get("ref") else ""
             price = f'<div class="pl-price">Prix : <b>{_escape(r["price"])}</b></div>' if r.get("price") else ""
             body = f'<div class="pl-desc">{_escape(r.get("body",""))}</div>' if r.get("body") else ""
-            rows_html.append(f'<div class="pl-row">{img}<div class="pl-text">{head}{ref}{price}{body}</div></div>')
+            rows_html.append(f'<div class="pl-row">{img}<div class="pl-text">{head}{cartel}{ref}{price}{body}</div></div>')
         return f'<section class="page page-productlist">{"".join(rows_html)}</section>'
 
     # gabarits image
@@ -1166,7 +1208,11 @@ figure.fit-cover img{object-fit:cover;} figure.fit-contain img{object-fit:contai
 .pl-img img{max-width:100%;max-height:100%;object-fit:contain;}
 .pl-text{flex:1;min-width:0;display:flex;flex-direction:column;justify-content:center;gap:1mm;}
 .pl-name{font-size:14px;font-weight:700;color:var(--accent);}
-.pl-ref{font-size:10.5px;color:var(--muted);} .pl-ref b{color:var(--ink);font-weight:700;}
+.pl-name .pl-year{font-weight:400;font-style:italic;color:var(--muted);}
+/* Cartel : technique · dimensions, puis pays — italique discret sous le titre,
+   comme l'étiquette accrochée à côté d'une œuvre. */
+.pl-cartel{font-size:10.5px;font-style:italic;color:var(--muted);line-height:1.45;}
+.pl-ref{font-size:10.5px;color:var(--muted);margin-top:.8mm;} .pl-ref b{color:var(--ink);font-weight:700;}
 .pl-price{font-size:10.5px;color:var(--muted);} .pl-price b{color:var(--ink);font-weight:700;}
 .pl-desc{font-size:10.5px;font-style:italic;color:var(--muted);line-height:1.4;margin-top:1mm;}
 /* Page pleine couleur / panoramique / index */

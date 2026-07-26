@@ -731,6 +731,32 @@ def gallery_attribute_bulk(req: AttributeBulkRequest):
     return {"updated": n, "label": req.label, "value": req.value}
 
 
+class ArtworkRequest(BaseModel):
+    path: str
+    fields: dict[str, str]   # {"Nom": …, "Technique": …, "Taille": …, "Année": …, "Pays": …}
+
+
+@app.post("/api/gallery/artwork")
+def gallery_artwork(req: ArtworkRequest):
+    """Renseigne le cartel d'une œuvre (nom, technique, taille, année, pays).
+
+    Ce sont des attributs ordinaires du sidecar : ils héritent de l'édition en
+    masse, du masquage, des facettes de la Galerie et de l'écriture EXIF, et
+    s'affichent en cartel dans le thème Catalogue."""
+    known = set(artbook_module.ARTWORK_FIELDS)
+    unknown = [k for k in req.fields if k not in known]
+    if unknown:
+        raise HTTPException(400, f"Champs inconnus : {', '.join(unknown)}")
+    for label, value in req.fields.items():
+        gallery_module.set_attribute_bulk([req.path], label, value)
+    return {"ok": True, "path": req.path, "fields": req.fields}
+
+
+@app.get("/api/gallery/artwork/fields")
+def gallery_artwork_fields():
+    return {"fields": artbook_module.ARTWORK_FIELDS}
+
+
 @app.post("/api/gallery/attribute/hide")
 def gallery_attribute_hide(req: AttributeHiddenBulkRequest):
     """Masque/révèle un attribut (ex. Prix) sur plusieurs photos, sans

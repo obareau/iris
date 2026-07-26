@@ -1416,3 +1416,19 @@ textarea::-webkit-resizer { background: var(--field); border-right: 2px solid va
 .ab-editor .ab-menu button small { display: block; color: var(--faint2); font-size: 10.5px; margin-top: 2px; line-height: 1.4; }
 .ab-editor .ab-menu button > em { margin-top: 1px; font-size: 9.5px; letter-spacing: .04em; width: 34px; }
 .ab-editor .ab-menu button span { display: flex; flex-direction: column; }
+
+/* ===== Cartel d'œuvre (inspecteur Galerie) ===== */
+.artwork-fields { display: flex; flex-direction: column; gap: 8px; }
+.artwork-fields label { display: flex; flex-direction: column; gap: 4px;
+  font-family: 'Iris Mono', monospace; font-size: 9.5px; letter-spacing: .12em;
+  text-transform: uppercase; color: var(--faint); }
+.artwork-fields input { font-family: 'Iris Sans', sans-serif; font-size: 12.5px;
+  text-transform: none; letter-spacing: 0; color: var(--text); }
+.artwork-pair { display: flex; gap: 8px; }
+.artwork-pair label { flex: 1; }
+/* Aperçu du cartel tel qu'il sortira dans le catalogue */
+.artwork-preview { margin: 10px 0 8px; padding: 10px 12px; background: var(--bg-2);
+  border-left: 2px solid var(--accent); border-radius: 0 6px 6px 0; }
+.artwork-preview[hidden] { display: none; }
+.artwork-preview .aw-l1 { font-size: 13px; font-weight: 700; color: var(--text); }
+.artwork-preview .aw-l2 { font-size: 11.5px; font-style: italic; color: var(--muted); margin-top: 2px; }

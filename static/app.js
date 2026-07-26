@@ -1067,6 +1067,7 @@ function galRenderInspector(item) {
   galInspSource.textContent = item.source_folder ? item.source_folder.split("/").pop() : "—";
   galInspSource.title = item.source_folder || "";
   galInspDetails.textContent = item.details || "—";
+  awFill(item);
 
   if (item.attributes && item.attributes.length) {
     galInspAttrs.innerHTML = "";
@@ -3402,5 +3403,80 @@ taxoLoadBtn.addEventListener("click", async () => {
     taxoRender(data);
   } finally {
     taxoLoadBtn.disabled = false;
+  }
+});
+
+// ===== Cartel d'œuvre (nom, technique, taille, année, pays) ================
+// Convention des catalogues d'exposition :
+//     Titre de l'œuvre, année
+//     Technique, dimensions
+//     Pays
+// Stocké comme attributs ordinaires du sidecar → hérite de l'édition en masse,
+// du masquage, des facettes de la Galerie et de l'écriture EXIF.
+const AW_FIELDS = { Nom: "awNom", Technique: "awTechnique", Taille: "awTaille",
+                    "Année": "awAnnee", Pays: "awPays" };
+
+function awAttr(item, label) {
+  const hidden = new Set((item.hidden_attributes || []).map(h => (h || "").toLowerCase()));
+  if (hidden.has(label.toLowerCase())) return "";
+  const a = (item.attributes || []).find(x => (x.label || "").toLowerCase() === label.toLowerCase());
+  return (a && a.value) || "";
+}
+
+function awFill(item) {
+  for (const [label, id] of Object.entries(AW_FIELDS)) {
+    const el = document.getElementById(id);
+    if (el) el.value = awAttr(item, label);
+  }
+  awUpdatePreview();
+}
+
+function awUpdatePreview() {
+  const v = l => (document.getElementById(AW_FIELDS[l])?.value || "").trim();
+  const l1 = [v("Nom"), v("Année")].filter(Boolean).join(", ");
+  const l2 = [v("Technique"), v("Taille")].filter(Boolean).join(", ");
+  const l3 = v("Pays");
+  const box = document.getElementById("awPreview");
+  if (!box) return;
+  const lines = [l1, l2, l3].filter(Boolean);
+  box.hidden = lines.length === 0;
+  box.innerHTML = lines.map((t, i) =>
+    `<div class="${i === 0 ? "aw-l1" : "aw-l2"}">${t.replace(/[<&]/g, c => ({ "<": "&lt;", "&": "&amp;" }[c]))}</div>`).join("");
+}
+
+Object.values(AW_FIELDS).forEach(id => {
+  const el = document.getElementById(id);
+  if (el) el.addEventListener("input", awUpdatePreview);
+});
+
+document.getElementById("awSaveBtn")?.addEventListener("click", async (e) => {
+  if (!galSelectedPath) { alert("Sélectionne d'abord une photo."); return; }
+  const btn = e.currentTarget;
+  const fields = {};
+  for (const [label, id] of Object.entries(AW_FIELDS)) {
+    fields[label] = (document.getElementById(id)?.value || "").trim();
+  }
+  btn.disabled = true; btn.textContent = "Enregistrement…";
+  try {
+    const r = await fetch("/api/gallery/artwork", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path: galSelectedPath, fields }),
+    });
+    if (!r.ok) { alert("Erreur : " + (await r.text())); return; }
+    // rafraîchir l'entrée en mémoire pour que la Galerie et l'artbook suivent
+    const item = galItemsByPath.get(galSelectedPath);
+    if (item) {
+      item.attributes = item.attributes || [];
+      for (const [label, value] of Object.entries(fields)) {
+        const a = item.attributes.find(x => (x.label || "").toLowerCase() === label.toLowerCase());
+        if (a) a.value = value;
+        else if (value) item.attributes.push({ label, value });
+      }
+      galRenderInspector(item);
+    }
+    btn.textContent = "Enregistré ✓";
+    setTimeout(() => { btn.textContent = "Enregistrer le cartel"; }, 1400);
+  } finally {
+    btn.disabled = false;
   }
 });
