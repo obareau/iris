@@ -97,9 +97,50 @@ Suivi Argus.
       ET canon_faction/verdict/clip_confidence en une seule passe. Fait le
       2026-07-23.
 
-Roadmap initiale (Phases 1-3) intégralement traitée.
+Roadmap initiale (Phases 1-3) intégralement traitée le 2026-07-23.
 
-## Phase 4 — Catalogue produits (2026-07-26)
+---
+
+# Phase 4 — Artbook & prépresse (depuis le 2026-07-25)
+
+Iris a pris une seconde fonction : **fabriquer des livres photo prêts pour
+l'imprimeur**. Wizard, éditeur complet, chemin de fer, reliure calée sur un
+multiple de 4/8/16, export CMJN Fogra 39. Voir `CHANGELOG.md` 0.2.0 et 0.3.0
+pour le détail, et `IMPRESSION.md` pour les contraintes des imprimeurs.
+
+## Reste ouvert
+
+- [ ] **Croix de repérage** — non exprimables depuis HTML (la couleur
+      « repérage » imprime sur les quatre plaques à la fois, notion propre au
+      PostScript). Le RIP de l'imprimeur les ajoute à l'imposition ; à traiter
+      seulement si un imprimeur en réclame dans le fichier fourni.
+- [ ] **PDF/X-3** — aucun des trois imprimeurs relevés ne l'exige, mais un
+      imprimeur traditionnel peut le demander. Faisable via Ghostscript avec un
+      `PDFX_def.ps` (intention de sortie embarquée).
+- [ ] **Plafonner l'encrage total (TAC)** — Fogra 39 admet 330 % ; les noirs
+      photo denses peuvent frôler la limite. À vérifier avec l'imprimeur avant
+      un tirage offset sur non couché.
+- [ ] **Alerte de définition** — signaler dans l'éditeur les photos trop
+      petites pour la taille à laquelle elles sont posées (une source de
+      1792 px tombe à ~120 dpi en pleine page). Iris ne peut pas inventer des
+      pixels, autant le dire avant l'export.
+- [ ] **Remixer la mise en page** — re-tirer gabarits et ordre avec une
+      nouvelle seed en gardant textes, légendes et intercalaires édités.
+- [ ] **Raccourcis clavier** dans l'éditeur (Ctrl+Z, Suppr, flèches).
+
+## Dette technique assumée
+
+- `static/app.js` (~3 350 lignes) et `static/style.css` (~1 420 lignes) sont
+  monolithiques. Le CSS porte en particulier une dizaine de couches de
+  correctifs empilées en fin de fichier (refonte visuelle du 2026-07-25) :
+  ça fonctionne, mais une consolidation serait saine avant d'y retoucher
+  lourdement.
+- `exports/` n'est pas purgé automatiquement (PDF et HTML de rendu
+  s'accumulent — plusieurs centaines de Mo après quelques sessions).
+
+---
+
+# Phase 5 — Catalogue produits (2026-07-26)
 
 - [x] **Déploiement permanent** — service systemd `iris.service` (installé,
       `enable`d, `Restart=on-failure`) + watchdog HTTP (`watchdog.sh` +
