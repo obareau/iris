@@ -44,8 +44,12 @@ COPY . .
 # google-chrome. On lui donne le nom qu'il attend.
 RUN ln -sf /usr/bin/chromium /usr/local/bin/chromium-browser
 
+# Sans .git dans l'image, la version affichée n'aurait aucun build à montrer :
+# on grave le sha au moment de la construction.
+ARG IRIS_BUILD=docker
 ENV PYTHONUNBUFFERED=1 \
-    HF_HOME=/root/.cache/huggingface
+    HF_HOME=/root/.cache/huggingface \
+    IRIS_BUILD=${IRIS_BUILD}
 
 EXPOSE 8800
 VOLUME ["/app/data", "/app/exports", "/root/.cache/huggingface"]

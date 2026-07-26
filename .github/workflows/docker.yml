@@ -52,6 +52,8 @@ jobs:
         with:
           context: .
           push: true
+          build-args: |
+            IRIS_BUILD=${{ github.sha }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           # Le cache évite de réinstaller PyTorch (le plus gros morceau) à

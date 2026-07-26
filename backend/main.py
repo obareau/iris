@@ -200,7 +200,10 @@ def _git(*args, timeout=60):
     try:
         p = subprocess.run(["git", "-C", str(APP_DIR), *args],
                            capture_output=True, text=True, timeout=timeout)
-        return p.returncode == 0, (p.stdout + p.stderr).strip()
+        # En échec on ne renvoie PAS stderr : l'appelant l'afficherait comme une
+        # valeur (« fatal: not a git repository » sous le logo, vu dans l'image
+        # Docker où .git est absent).
+        return (True, p.stdout.strip()) if p.returncode == 0 else (False, "")
     except Exception as e:
         return False, str(e)
 
@@ -224,7 +227,11 @@ def version():
     _, date = _git("log", "-1", "--format=%cs")
     _, branch = _git("rev-parse", "--abbrev-ref", "HEAD")
     _, dirty = _git("status", "--porcelain")
-    return {"version": ver, "build": sha or "?", "date": date or "",
+    # Dans l'image Docker il n'y a pas de .git : le sha est gravé au build.
+    if not sha:
+        sha = (os.environ.get("IRIS_BUILD") or "docker")[:7]
+        branch = branch or "docker"
+    return {"version": ver, "build": sha, "date": date or "",
             "branch": branch or "", "dirty": bool(dirty)}
 
 

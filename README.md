@@ -264,10 +264,10 @@ docker run -p 8800:8800 \
   ghcr.io/obareau/iris
 ```
 
-L'image est **CPU** : fonctionnelle partout, mais lente. Une image ne peut pas
-embarquer les trois roues PyTorch (CUDA, ROCm, CPU) — il en faudrait trois, de 6
-à 10 Go chacune. Qui a un GPU a une machine équipée et lance `./setup.sh`, qui
-gère les trois cas.
+L'image fait ~880 Mo et tourne sur **processeur** : fonctionnelle partout, mais
+lente. Une image ne peut pas embarquer les trois roues PyTorch (CUDA, ROCm,
+CPU) — il en faudrait trois, de plusieurs Go chacune. Qui a un GPU a une machine
+équipée et lance `./setup.sh`, qui gère les trois cas.
 
 Le volume sur le cache HuggingFace évite de re-télécharger les ~10 Go de modèles
 à chaque conteneur.
