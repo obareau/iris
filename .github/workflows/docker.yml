@@ -107,10 +107,15 @@ jobs:
 
       - name: Assemblage du manifeste multi-architecture
         working-directory: /tmp/digests
+        # Le JSON des étiquettes passe par la variable d'environnement posée par
+        # metadata-action, PAS par une interpolation ${{ }} : le JSON contient
+        # des parenthèses, que le shell interprète (erreur de syntaxe vécue).
+        env:
+          IMAGE_REF: ${{ env.REGISTRY }}/${{ env.IMAGE }}
         run: |
           docker buildx imagetools create \
-            $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< '${{ steps.meta.outputs.json }}') \
-            $(printf '${{ env.REGISTRY }}/${{ env.IMAGE }}@sha256:%s ' *)
+            $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
+            $(printf "$IMAGE_REF@sha256:%s " *)
 
       - name: Vérification
         run: |
