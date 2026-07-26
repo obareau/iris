@@ -243,24 +243,19 @@ claude mcp add iris -s user -- uv run --with mcp ~/DEV/iris/iris_mcp.py
 ## Installation
 
 ```bash
-python3.12 -m venv venv && source venv/bin/activate
-pip install --upgrade pip
-
-# GPU NVIDIA
-pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
-# GPU AMD (ROCm) — aucun changement de code, seule la roue diffère
-# pip install torch torchvision --index-url https://repo.amd.com/rocm/whl-multi-arch/
-
-pip install -r requirements.txt
+./setup.sh
 ```
 
-Binaires système pour l'export de livres :
+Le script détecte le GPU (NVIDIA, AMD/ROCm ou aucun) et installe la roue
+PyTorch correspondante — le code d'Iris, lui, est identique dans les trois cas.
+Il vérifie aussi les binaires système nécessaires à l'export
+(`ghostscript`, `poppler-utils`, un navigateur, `colord-data` pour le profil
+Fogra 39) et dit quoi installer s'il en manque.
 
-```bash
-sudo apt install chromium-browser ghostscript poppler-utils colord-data
-```
+Forcer un mode : `./setup.sh --cuda` · `--rocm` · `--cpu`.
 
-Sans GPU, Iris bascule sur le CPU : fonctionnel, mais lent.
+Sans GPU, Iris bascule sur le processeur : fonctionnel, mais lent. Les modèles
+(~10 Go) se téléchargent au premier usage.
 
 📄 Voir **[PORTAGE.md](PORTAGE.md)** — dépendances détaillées, install ROCm,
 pièges connus, données à emporter.
