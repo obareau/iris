@@ -3614,3 +3614,71 @@ async function znBuild(endpoint, btn) {
 }
 $("znPreview").addEventListener("click", e => znBuild("/api/zine", e.currentTarget));
 $("znPdf").addEventListener("click", e => znBuild("/api/zine/pdf", e.currentTarget));
+
+// ===== Mise à jour d'Iris depuis l'interface ==============================
+// Personne ne devrait avoir à ouvrir un terminal pour savoir si son Iris est à
+// jour, ni pour le mettre à jour. Le script deploy.sh existait déjà : on lui
+// donne juste un bouton et un indicateur.
+const updBtn = $("updBtn"), updModal = $("updModal");
+let updInfo = null;
+
+async function updCheck(silent = true) {
+  try {
+    const r = await fetch("/api/update/check");
+    updInfo = await r.json();
+  } catch (e) { return null; }
+  if (updInfo.available) {
+    updBtn.hidden = false;
+    updBtn.textContent = `↑ ${updInfo.behind} maj`;
+    updBtn.classList.add("on");
+  } else {
+    updBtn.hidden = silent;          // visible seulement si on a demandé
+    updBtn.textContent = "à jour";
+    updBtn.classList.remove("on");
+  }
+  return updInfo;
+}
+
+updBtn.addEventListener("click", () => {
+  if (!updInfo) return;
+  $("updTitle").textContent = updInfo.available ? "Mise à jour disponible" : "Iris est à jour";
+  $("updMsg").textContent = updInfo.message + ` (version locale ${updInfo.local}, branche ${updInfo.branch})`;
+  const list = $("updList");
+  list.innerHTML = (updInfo.commits || []).map(c => `<div>${c.replace(/[<&]/g, m => ({'<':'&lt;','&':'&amp;'}[m]))}</div>`).join("");
+  list.hidden = !(updInfo.commits || []).length;
+  const note = $("updNote");
+  note.hidden = !updInfo.dirty;
+  note.textContent = updInfo.dirty
+    ? "⚠ Des modifications locales non validées bloquent la mise à jour : committe-les ou annule-les d'abord."
+    : "";
+  $("updGo").disabled = !updInfo.available || updInfo.dirty;
+  updModal.hidden = false;
+});
+$("updCancel").addEventListener("click", () => { updModal.hidden = true; });
+
+$("updGo").addEventListener("click", async (e) => {
+  const btn = e.currentTarget;
+  btn.disabled = true; btn.textContent = "Mise à jour…";
+  try {
+    const r = await fetch("/api/update/apply", { method: "POST" });
+    if (!r.ok) { $("updMsg").textContent = "Échec : " + (await r.text()); return; }
+    // le service redémarre : on attend qu'il réponde de nouveau
+    $("updMsg").textContent = "Mise à jour en cours, le service redémarre…";
+    for (let i = 0; i < 60; i++) {
+      await new Promise(s => setTimeout(s, 2000));
+      try {
+        const c = await fetch("/api/update/check", { cache: "no-store" });
+        const d = await c.json();
+        if (!d.available) {
+          $("updMsg").textContent = `Iris est à jour (version ${d.local}). Rechargement…`;
+          setTimeout(() => location.reload(), 1200);
+          return;
+        }
+      } catch (_) { /* serveur encore en train de redémarrer */ }
+    }
+    $("updMsg").textContent = "Le serveur met du temps à revenir — vérifie le journal de mise à jour.";
+  } finally { btn.disabled = false; btn.textContent = "Mettre à jour"; }
+});
+
+updCheck(true);                                  // au chargement, discret
+setInterval(() => updCheck(true), 30 * 60 * 1000); // puis toutes les 30 min

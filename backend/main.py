@@ -191,6 +191,73 @@ def browse(path: str | None = None):
     return {"path": str(base), "parent": parent, "entries": entries}
 
 
+APP_DIR = Path(__file__).parent.parent
+
+
+def _git(*args, timeout=60):
+    """git dans le dépôt d'Iris. Renvoie (ok, sortie)."""
+    try:
+        p = subprocess.run(["git", "-C", str(APP_DIR), *args],
+                           capture_output=True, text=True, timeout=timeout)
+        return p.returncode == 0, (p.stdout + p.stderr).strip()
+    except Exception as e:
+        return False, str(e)
+
+
+@app.get("/api/update/check")
+def update_check():
+    """Y a-t-il une version plus récente ? Interroge le dépôt distant.
+
+    Sert à l'indicateur de l'interface : personne ne devrait avoir à taper
+    `git log` pour savoir si son Iris est à jour."""
+    if not (APP_DIR / ".git").exists():
+        return {"available": False, "reason": "not_a_git_checkout",
+                "message": "Cette copie d'Iris n'est pas un dépôt git."}
+    ok, _ = _git("fetch", "--quiet", "origin")
+    if not ok:
+        return {"available": False, "reason": "offline",
+                "message": "Dépôt distant injoignable."}
+    _, local = _git("rev-parse", "--short", "HEAD")
+    _, branch = _git("rev-parse", "--abbrev-ref", "HEAD")
+    _, behind = _git("rev-list", "--count", f"HEAD..origin/{branch}")
+    _, ahead = _git("rev-list", "--count", f"origin/{branch}..HEAD")
+    _, dirty = _git("status", "--porcelain")
+    n = int(behind) if behind.isdigit() else 0
+    _, log = _git("log", "--oneline", "--no-decorate", f"HEAD..origin/{branch}")
+    return {
+        "available": n > 0, "behind": n,
+        "ahead": int(ahead) if ahead.isdigit() else 0,
+        "local": local, "branch": branch,
+        "dirty": bool(dirty),
+        "commits": [l for l in log.splitlines() if l][:10],
+        "message": (f"{n} mise{'s' if n > 1 else ''} à jour disponible{'s' if n > 1 else ''}."
+                    if n else "Iris est à jour."),
+    }
+
+
+@app.post("/api/update/apply")
+def update_apply():
+    """Lance la mise à jour et rend la main tout de suite.
+
+    Le script redémarre le service, donc il tuerait cette requête en cours de
+    route : on le détache (session séparée) et l'interface attend le retour du
+    serveur en interrogeant /api/update/check."""
+    script = APP_DIR / "deploy.sh"
+    if not script.is_file():
+        raise HTTPException(500, "deploy.sh introuvable")
+    _, dirty = _git("status", "--porcelain")
+    if dirty:
+        raise HTTPException(409,
+            "Des modifications locales non validées bloquent la mise à jour. "
+            "Committe-les ou annule-les d'abord.")
+    log = EXPORTS_DIR.parent / "update.log"
+    with open(log, "wb") as f:
+        subprocess.Popen(["bash", str(script)], cwd=str(APP_DIR),
+                         stdout=f, stderr=subprocess.STDOUT,
+                         start_new_session=True)   # survit au redémarrage du service
+    return {"started": True, "log": str(log)}
+
+
 @app.get("/api/browse/shortcuts")
 def browse_shortcuts():
     return {"shortcuts": mounts.list_shortcuts()}

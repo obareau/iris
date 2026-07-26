@@ -22,6 +22,7 @@
       <button type="button" class="tab-btn" data-tab="recta">Recta</button>
       <button type="button" class="tab-btn" data-tab="taxonomie">Taxonomie</button>
     </nav>
+    <button type="button" id="updBtn" class="upd" hidden title="Mettre à jour Iris"></button>
     <div class="global-progress" id="globalProgress">
       <div class="gp-head">
         <span id="gpLabel">Prêt</span>
@@ -523,6 +524,20 @@
 </div>
 
 <!-- Modale de navigation dossiers -->
+<!-- Mise à jour d'Iris -->
+<div id="updModal" class="modal" hidden>
+  <div class="modal-box">
+    <div class="modal-header"><h2 id="updTitle">Mise à jour</h2></div>
+    <p class="upd-msg" id="updMsg"></p>
+    <div class="upd-log" id="updList" hidden></div>
+    <p class="upd-note" id="updNote" hidden></p>
+    <div class="modal-actions">
+      <button type="button" class="btn ghost" id="updCancel">Fermer</button>
+      <button type="button" class="btn primary" id="updGo">Mettre à jour</button>
+    </div>
+  </div>
+</div>
+
 <!-- Zine : 8 pages sur une feuille pliée -->
 <div id="zineModal" class="wiz-overlay" hidden>
   <div class="wiz" style="width:min(660px,96vw)">
