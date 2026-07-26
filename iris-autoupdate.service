@@ -1,0 +1,17 @@
+[Unit]
+Description=Iris — mise à jour automatique depuis le dépôt
+Documentation=https://github.com/obareau/iris
+# Sans réseau, inutile d'essayer : le timer repassera au prochain créneau.
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=__USER__
+WorkingDirectory=__DIR__
+ExecStart=__DIR__/deploy.sh
+# deploy.sh sort en erreur si sudo réclame un mot de passe : on veut le voir
+# dans le journal (journalctl -u iris-autoupdate) plutôt que l'ignorer.
+StandardOutput=journal
+StandardError=journal
+TimeoutStartSec=900

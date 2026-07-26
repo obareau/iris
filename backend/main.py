@@ -288,7 +288,7 @@ def update_apply():
             "n'est pas configuré sur cette machine. Mets à jour en ligne de "
             "commande : ./deploy.sh — ou autorise ce seul redémarrage avec "
             "/etc/sudoers.d/iris-restart (voir deploy.sh).")
-    log = EXPORTS_DIR.parent / "update.log"
+    log = EXPORTS_DIR / "update.log"   # exports/ est déjà ignoré par git
     with open(log, "wb") as f:
         subprocess.Popen(["bash", str(script)], cwd=str(APP_DIR),
                          stdout=f, stderr=subprocess.STDOUT,

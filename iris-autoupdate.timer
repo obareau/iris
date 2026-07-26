@@ -1,0 +1,15 @@
+[Unit]
+Description=Iris — vérifier les mises à jour chaque nuit
+Documentation=https://github.com/obareau/iris
+
+[Timer]
+# 4 h du matin : personne ne trie de photos, et le service se coupe une seconde.
+OnCalendar=*-*-* 04:00:00
+# Décalage aléatoire : si plusieurs machines suivent le même dépôt, elles ne
+# tapent pas toutes GitHub à la même seconde.
+RandomizedDelaySec=30m
+# Machine éteinte à 4 h ? On rattrape au démarrage suivant.
+Persistent=true
+
+[Install]
+WantedBy=timers.target
