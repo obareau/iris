@@ -1,14 +1,24 @@
 [Unit]
-Description=Iris — vérifier les mises à jour chaque nuit
+Description=Iris — vérifier les mises à jour
 Documentation=https://github.com/obareau/iris
 
 [Timer]
-# 4 h du matin : personne ne trie de photos, et le service se coupe une seconde.
+# Deux déclenchements, parce qu'un PC de bureau n'est pas un serveur :
+#
+#   OnBootSec   quelques minutes après chaque démarrage — le seul moment
+#               garanti sur une machine qu'on éteint le soir. Sans coût :
+#               deploy.sh ne redémarre le service que s'il a réellement tiré
+#               quelque chose, sinon il s'arrête après un fetch d'une seconde.
+#   OnCalendar  4 h du matin, pour les machines qui restent allumées.
+OnBootSec=3min
 OnCalendar=*-*-* 04:00:00
-# Décalage aléatoire : si plusieurs machines suivent le même dépôt, elles ne
-# tapent pas toutes GitHub à la même seconde.
-RandomizedDelaySec=30m
-# Machine éteinte à 4 h ? On rattrape au démarrage suivant.
+
+# Décalage aléatoire : plusieurs machines suivant le même dépôt ne tapent pas
+# GitHub à la même seconde, et la mise à jour ne tombe pas pile au moment où
+# l'utilisateur ouvre sa session.
+RandomizedDelaySec=10m
+
+# Machine éteinte à l'heure prévue : on rattrape au démarrage suivant.
 Persistent=true
 
 [Install]
