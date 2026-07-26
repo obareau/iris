@@ -942,16 +942,45 @@ figure.fit-contain img{object-fit:contain;background:#e6e2da;}
 THEMES = {"editorial": CSS_EDITORIAL, "brutalist": CSS_BRUTALIST}
 
 
-# Chaque page devient une FEUILLE : le dessin (agrandi au fond perdu) posé au
-# centre, et les quatre équerres de coupe qui marquent le format fini.
-CSS_PRINT = f"""
-@page{{size:{SHEET_PX}px {SHEET_PX}px;margin:0;}}
+# ── Deux profils de fichier, parce que les imprimeurs n'attendent pas la même
+# chose (vérifié chez Blurb, Lulu et Pixartprinting le 2026-07-26) :
+#
+#   « en ligne »  Blurb / Lulu / Pixartprinting : PDF au format fini + 3 mm de
+#                 fond perdu, **sans traits de coupe ni repères** — ils imposent
+#                 le massicot eux-mêmes et un fichier avec équerres est rejeté.
+#   « atelier »   imprimeur classique à qui on confie un fichier à massicoter :
+#                 équerres de coupe dans une marge de 5 mm.
+#
+# Marge de sécurité : Blurb demande 6,35 mm depuis la coupe, Lulu 12,7 mm. On
+# retient 12,7 mm, le plus strict, pour les textes posés SUR une image à fond
+# perdu (légendes, bandeaux) — sinon ils partent au massicot.
+SAFE_PX = 48   # 12,7 mm depuis le format fini
+
+CSS_PRINT_BASE = f"""
 html,body{{background:#fff;margin:0;padding:0;}}
-.sheet{{position:relative;width:{SHEET_PX}px;height:{SHEET_PX}px;background:#fff;overflow:hidden;
+.sheet{{position:relative;background:#fff;overflow:hidden;
   display:flex;align-items:center;justify-content:center;margin:0;
   page-break-after:always;break-after:page;break-inside:avoid;page-break-inside:avoid;}}
 .sheet:last-child{{break-after:avoid;page-break-after:avoid;}}
 .sheet .page{{width:{PAGE_PX}px;height:{PAGE_PX}px;margin:0;box-shadow:none;border-radius:0;}}
+/* Zone tranquille : le texte posé sur une image à fond perdu doit rester à
+   {SAFE_PX}px (12,7 mm) du format fini, sinon le massicot le coupe. */
+.page-full figcaption{{left:{SAFE_PX}px;right:{SAFE_PX}px;bottom:{SAFE_PX}px;padding:4mm 5mm;}}
+.page-pirate .pir-band{{top:{SAFE_PX}px;left:{SAFE_PX}px;right:{SAFE_PX}px;}}
+.page-cover .cover-text,.page-backcover .bc-inner{{margin:0 {SAFE_PX - 30}px;}}
+"""
+
+# Profil « en ligne » : la feuille EST le format fini + fond perdu, rien autour.
+CSS_PRINT_ONLINE = f"""
+@page{{size:{PAGE_PX}px {PAGE_PX}px;margin:0;}}
+.sheet{{width:{PAGE_PX}px;height:{PAGE_PX}px;}}
+.marks,.folio{{display:none;}}
+"""
+
+# Profil « atelier » : marge supplémentaire pour tracer les équerres.
+CSS_PRINT_MARKS = f"""
+@page{{size:{SHEET_PX}px {SHEET_PX}px;margin:0;}}
+.sheet{{width:{SHEET_PX}px;height:{SHEET_PX}px;}}
 /* équerres de coupe : posées sur le format fini, tracées dans la marge */
 .marks i{{position:absolute;width:0;height:0;}}
 .marks i::before,.marks i::after{{content:"";position:absolute;background:#000;}}
@@ -984,7 +1013,10 @@ def _wrap_sheets(body: str, title: str) -> str:
     return "".join(out)
 
 
-def render_model(model: dict, print_mode: bool = False) -> tuple[Path, dict]:
+def render_model(model: dict, print_mode: bool = False, marks: bool = False) -> tuple[Path, dict]:
+    """print_mode : fichier destiné au papier (fond perdu + haute déf).
+    marks : ajoute les équerres de coupe — À NE PAS activer pour Blurb / Lulu /
+    Pixartprinting, qui exigent un PDF sans repères."""
     global _PRINT
     EXPORTS_DIR.mkdir(parents=True, exist_ok=True)
     meta = _meta_index()
@@ -1000,12 +1032,12 @@ def render_model(model: dict, print_mode: bool = False) -> tuple[Path, dict]:
         _PRINT = False
     if print_mode:
         body = _wrap_sheets(body, title)
-        css += CSS_PRINT
+        css += CSS_PRINT_BASE + (CSS_PRINT_MARKS if marks else CSS_PRINT_ONLINE)
+    suffix = ("-atelier" if marks else "-imprimeur") if print_mode else ""
     html = (f'<!doctype html><html lang="fr"><head><meta charset="utf-8" />'
             f'<title>{_escape(title)}</title>'
             f'<style>{fonts}{css}</style></head>'
             f'<body>{body}</body></html>')
-    suffix = "-imprimeur" if print_mode else ""
     out = EXPORTS_DIR / f"artbook-{_slugify(title)}{suffix}-{datetime.now():%Y%m%d-%H%M%S}.html"
     out.write_text(html, encoding="utf-8")
     n_photos = sum(len(p.get("items", [])) for p in pages if p.get("tpl") in IMAGE_TPLS or p.get("tpl") == "photo-text")
@@ -1016,10 +1048,11 @@ import shutil
 import subprocess
 
 
-def render_pdf(model: dict, print_mode: bool = False) -> Path:
+def render_pdf(model: dict, print_mode: bool = False, marks: bool = False) -> Path:
     """Rend le modèle en HTML puis en PDF via chromium headless (respecte @page).
-    print_mode : fichier imprimeur (fonds perdus + traits de coupe, haute déf)."""
-    html_path, _ = render_model(model, print_mode=print_mode)
+    print_mode : fichier papier (fond perdu 3 mm, ~300 dpi, zone tranquille).
+    marks : équerres de coupe (imprimeur d'atelier uniquement)."""
+    html_path, _ = render_model(model, print_mode=print_mode, marks=marks)
     pdf_path = html_path.with_suffix(".pdf")
     chrome = shutil.which("google-chrome") or shutil.which("google-chrome-stable") \
         or shutil.which("chromium") or shutil.which("chromium-browser")

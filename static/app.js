@@ -2449,11 +2449,11 @@ document.getElementById("abRegen").addEventListener("click", async () => {
 });
 
 // export PDF (chromium headless côté serveur)
-async function abExportPdf(btn, printMode) {
+async function abExportPdf(btn, printMode, marks = false) {
   const label = btn.textContent;
   btn.disabled = true; btn.textContent = printMode ? "Fichier imprimeur…" : "PDF en cours…";
   try {
-    const res = await fetch(`/api/artbook/${abId}/pdf?print_mode=${printMode ? "true" : "false"}`, {
+    const res = await fetch(`/api/artbook/${abId}/pdf?print_mode=${printMode ? "true" : "false"}&marks=${marks ? "true" : "false"}`, {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ model: abModel }),
     });
@@ -2465,7 +2465,9 @@ async function abExportPdf(btn, printMode) {
   }
 }
 document.getElementById("abPdf").addEventListener("click", (e) => abExportPdf(e.currentTarget, false));
-document.getElementById("abPdfPrint").addEventListener("click", (e) => abExportPdf(e.currentTarget, true));
+// Maj+clic = profil « atelier » (avec équerres) ; clic simple = profil en ligne
+// (Blurb/Lulu/Pixartprinting : fond perdu seul, aucun repère).
+document.getElementById("abPdfPrint").addEventListener("click", (e) => abExportPdf(e.currentTarget, true, e.shiftKey));
 
 galBulkDeleteBtn.addEventListener("click", async () => {
   const paths = [...galSelectedPaths];
