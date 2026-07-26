@@ -331,7 +331,7 @@ folderEl.addEventListener("change", () => {
 // ---------- Analyse (passe 1) ----------
 analyzeBtn.addEventListener("click", async () => {
   const folder = folderEl.value.trim();
-  if (!folder) { alert("Indique un dossier source."); return; }
+  if (!(await ensureFolder(folder, { targetInput: folderEl }))) return;
   currentCategories = parseCategories();
   rebuildFilterOptions();
 
@@ -512,8 +512,8 @@ pipelineCancelBtn.addEventListener("click", () => {
 pipelineBtn.addEventListener("click", async () => {
   const folder = folderEl.value.trim();
   const dest = destEl.value.trim();
-  if (!folder) { alert("Indique un dossier source."); return; }
-  if (!dest) { alert("Indique un dossier destination."); return; }
+  if (!(await ensureFolder(folder, { targetInput: folderEl }))) return;
+  if (!(await ensureFolder(dest, { needWrite: true, targetInput: destEl }))) return;
 
   pipelineBtn.disabled = true;
   pipelineCancelBtn.hidden = false;
@@ -607,7 +607,7 @@ pipelineBtn.addEventListener("click", async () => {
 // ---------- Application / annulation ----------
 applyBtn.addEventListener("click", async () => {
   const dest = destEl.value.trim();
-  if (!dest) { alert("Indique un dossier de destination."); return; }
+  if (!(await ensureFolder(dest, { needWrite: true, targetInput: destEl }))) return;
   if (!confirm(`Déplacer et renommer ${order.length} images vers ${dest} ?`)) return;
 
   applyBtn.disabled = true;
@@ -824,7 +824,8 @@ libRender();
 
 libAddBtn.addEventListener("click", async () => {
   const path = libNewFolderEl.value.trim();
-  if (!path) return;
+  // un dossier de bibliothèque sans image est inutile : on le dit tout de suite
+  if (!(await ensureFolder(path, { targetInput: libNewFolderEl }))) return;
   libAddBtn.disabled = true;
   try {
     const res = await fetch("/api/library/add", {
@@ -3480,3 +3481,71 @@ document.getElementById("awSaveBtn")?.addEventListener("click", async (e) => {
     btn.disabled = false;
   }
 });
+
+// ===== Verrou d'accès aux dossiers =======================================
+// Un chemin faux ne doit jamais partir dans un job : on diagnostique d'abord
+// côté serveur (source de vérité unique), et on explique dans une modale ce qui
+// cloche, avec un raccourci vers le navigateur de dossiers pour corriger.
+const folderModal = $("folderModal");
+let fmBrowseTarget = null;
+
+function fmShow(diag, targetInput) {
+  fmBrowseTarget = targetInput || null;
+  const titles = {
+    empty: "Aucun dossier indiqué", missing: "Dossier introuvable",
+    not_a_dir: "Ce n'est pas un dossier", unreadable: "Dossier illisible",
+    readonly: "Dossier en lecture seule", invalid: "Chemin invalide",
+    empty_dir: "Dossier vide",
+  };
+  $("fmTitle").textContent = titles[diag.reason] || "Dossier inutilisable";
+  $("fmMsg").textContent = diag.message || "";
+  const pathEl = $("fmPath");
+  pathEl.textContent = diag.path || "";
+  pathEl.hidden = !diag.path;
+  const hint = $("fmHint");
+  if (diag.reason === "readonly") {
+    hint.textContent = "Choisis un dossier où tu peux écrire, ou corrige les droits.";
+    hint.hidden = false;
+  } else if (diag.reason === "unreadable") {
+    hint.textContent = "Iris tourne sous l'utilisateur du service : il n'a pas accès à ce dossier.";
+    hint.hidden = false;
+  } else {
+    hint.hidden = true;
+  }
+  $("fmBrowse").hidden = !targetInput;
+  folderModal.hidden = false;
+}
+
+/** Valide un chemin. Renvoie true si utilisable, sinon ouvre la modale.
+ *  `targetInput` : l'input à corriger (active le bouton « Parcourir… »). */
+async function ensureFolder(path, { needWrite = false, targetInput = null, allowEmpty = false } = {}) {
+  let diag;
+  try {
+    const r = await fetch("/api/folder/check", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path: path || "", need_write: needWrite }),
+    });
+    diag = await r.json();
+  } catch (e) {
+    fmShow({ reason: "invalid", message: "Impossible de joindre le serveur pour vérifier le dossier." }, targetInput);
+    return false;
+  }
+  if (!diag.ok) { fmShow(diag, targetInput); return false; }
+  // dossier valide mais sans image : bloquant pour une analyse, pas pour une destination
+  if (!allowEmpty && !needWrite && diag.images === 0) {
+    fmShow({ ...diag, reason: "empty_dir",
+             message: "Ce dossier est accessible mais ne contient aucune image." }, targetInput);
+    return false;
+  }
+  return true;
+}
+
+$("fmCancel").addEventListener("click", () => { folderModal.hidden = true; });
+$("fmBrowse").addEventListener("click", () => {
+  folderModal.hidden = true;
+  if (!fmBrowseTarget) return;
+  browseTargetInput = fmBrowseTarget;
+  browseModal.hidden = false;
+  browseLoad(fmBrowseTarget.value || null);
+});
+folderModal.addEventListener("click", (e) => { if (e.target === folderModal) folderModal.hidden = true; });

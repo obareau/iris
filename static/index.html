@@ -522,6 +522,20 @@
 </div>
 
 <!-- Modale de navigation dossiers -->
+<!-- Dossier invalide : on explique et on propose de corriger -->
+<div id="folderModal" class="modal" hidden>
+  <div class="modal-box">
+    <div class="modal-header"><h2 id="fmTitle">Dossier introuvable</h2></div>
+    <p class="fm-msg" id="fmMsg"></p>
+    <div class="fm-path" id="fmPath" hidden></div>
+    <div class="fm-hint" id="fmHint" hidden></div>
+    <div class="modal-actions">
+      <button type="button" class="btn ghost" id="fmCancel">Annuler</button>
+      <button type="button" class="btn primary" id="fmBrowse">Parcourir…</button>
+    </div>
+  </div>
+</div>
+
 <div id="browseModal" class="modal" hidden>
   <div class="modal-box">
     <div class="modal-header">

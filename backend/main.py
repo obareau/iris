@@ -1,5 +1,6 @@
 import io
 import json
+import os
 import subprocess
 import sys
 import threading
@@ -192,6 +193,64 @@ def browse(path: str | None = None):
 @app.get("/api/browse/shortcuts")
 def browse_shortcuts():
     return {"shortcuts": mounts.list_shortcuts()}
+
+
+class FolderCheckRequest(BaseModel):
+    path: str
+    need_write: bool = False   # True pour un dossier de destination
+
+
+@app.post("/api/folder/check")
+def folder_check(req: FolderCheckRequest):
+    """Diagnostique un chemin de dossier AVANT de lancer quoi que ce soit.
+
+    Une seule source de vérité pour tous les points d'entrée (analyse,
+    application du tri, bibliothèque) : plutôt qu'un job qui part et échoue à
+    mi-parcours, on dit précisément ce qui cloche et on laisse corriger.
+    Renvoie toujours 200 — c'est un diagnostic, pas une erreur.
+    """
+    raw = (req.path or "").strip()
+    if not raw:
+        return {"ok": False, "reason": "empty", "message": "Aucun dossier indiqué."}
+
+    p = Path(raw).expanduser()
+    try:
+        p = p.resolve()
+    except OSError as e:
+        return {"ok": False, "reason": "invalid", "message": f"Chemin illisible : {e}"}
+
+    if not p.exists():
+        # remonter jusqu'au premier parent existant : c'est ce qui aide vraiment
+        # à comprendre où la faute de frappe se situe.
+        existing = p
+        while not existing.exists() and existing != existing.parent:
+            existing = existing.parent
+        return {"ok": False, "reason": "missing", "path": str(p),
+                "nearest": str(existing),
+                "message": f"Ce dossier n'existe pas. Le plus proche qui existe est « {existing} »."}
+
+    if p.is_file():
+        return {"ok": False, "reason": "not_a_dir", "path": str(p),
+                "nearest": str(p.parent),
+                "message": "Ce chemin désigne un fichier, pas un dossier."}
+
+    if not os.access(p, os.R_OK | os.X_OK):
+        return {"ok": False, "reason": "unreadable", "path": str(p),
+                "message": "Dossier illisible (droits insuffisants)."}
+
+    if req.need_write and not os.access(p, os.W_OK):
+        return {"ok": False, "reason": "readonly", "path": str(p),
+                "message": "Dossier en lecture seule : impossible d'y ranger des photos."}
+
+    n_img = 0
+    try:
+        n_img = sum(1 for f in p.rglob("*")
+                    if f.is_file() and f.suffix.lower() in scanner.IMAGE_EXTS)
+    except OSError:
+        pass
+    return {"ok": True, "path": str(p), "images": n_img,
+            "message": f"{n_img} image{'s' if n_img > 1 else ''} trouvée{'s' if n_img > 1 else ''}."
+                       if n_img else "Dossier accessible, mais aucune image dedans."}
 
 
 @app.post("/api/scan")
