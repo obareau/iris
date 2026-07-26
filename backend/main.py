@@ -250,6 +250,20 @@ def update_apply():
         raise HTTPException(409,
             "Des modifications locales non validées bloquent la mise à jour. "
             "Committe-les ou annule-les d'abord.")
+    # Le script redémarre le service via sudo. Détaché, il n'y a personne pour
+    # taper un mot de passe : autant le dire ici plutôt que de laisser
+    # l'interface attendre un serveur qui ne redémarrera jamais.
+    try:
+        sudo_ok = subprocess.run(["sudo", "-n", "true"], capture_output=True,
+                                 timeout=10).returncode == 0
+    except Exception:
+        sudo_ok = False
+    if not sudo_ok:
+        raise HTTPException(501,
+            "Le redémarrage automatique demande sudo sans mot de passe, ce qui "
+            "n'est pas configuré sur cette machine. Mets à jour en ligne de "
+            "commande : ./deploy.sh — ou autorise ce seul redémarrage avec "
+            "/etc/sudoers.d/iris-restart (voir deploy.sh).")
     log = EXPORTS_DIR.parent / "update.log"
     with open(log, "wb") as f:
         subprocess.Popen(["bash", str(script)], cwd=str(APP_DIR),
