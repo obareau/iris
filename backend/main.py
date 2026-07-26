@@ -1,6 +1,7 @@
 import io
 import json
 import os
+import re
 import subprocess
 import sys
 import threading
@@ -202,6 +203,29 @@ def _git(*args, timeout=60):
         return p.returncode == 0, (p.stdout + p.stderr).strip()
     except Exception as e:
         return False, str(e)
+
+
+@app.get("/api/version")
+def version():
+    """Version et build affichés sous le logo.
+
+    La version vient du CHANGELOG (déjà tenu à jour, une seule source de vérité
+    plutôt qu'un fichier VERSION qui dériverait), le build de git."""
+    ver = "?"
+    try:
+        for line in (APP_DIR / "CHANGELOG.md").read_text(encoding="utf-8").splitlines():
+            m = re.match(r"^##\s*\[([^\]]+)\]", line)
+            if m:
+                ver = m.group(1)
+                break
+    except Exception:
+        pass
+    _, sha = _git("rev-parse", "--short", "HEAD")
+    _, date = _git("log", "-1", "--format=%cs")
+    _, branch = _git("rev-parse", "--abbrev-ref", "HEAD")
+    _, dirty = _git("status", "--porcelain")
+    return {"version": ver, "build": sha or "?", "date": date or "",
+            "branch": branch or "", "dirty": bool(dirty)}
 
 
 @app.get("/api/update/check")

@@ -3682,3 +3682,26 @@ $("updGo").addEventListener("click", async (e) => {
 
 updCheck(true);                                  // au chargement, discret
 setInterval(() => updCheck(true), 30 * 60 * 1000); // puis toutes les 30 min
+
+// ===== Version et build sous le logo ======================================
+// La version vient du CHANGELOG, le build de git : rien à tenir à jour à la
+// main, et l'affichage ne peut pas mentir sur ce qui tourne réellement.
+(async () => {
+  const el = $("verLine");
+  if (!el) return;
+  try {
+    const v = await (await fetch("/api/version")).json();
+    el.textContent = `v${v.version} · ${v.build}${v.dirty ? "*" : ""}`;
+    el.title = `Version ${v.version} — build ${v.build} du ${v.date} (branche ${v.branch})`
+             + (v.dirty ? "\n* modifications locales non validées" : "")
+             + "\nCliquer pour vérifier les mises à jour.";
+    el.classList.toggle("dirty", !!v.dirty);
+  } catch (e) { el.textContent = ""; }
+  el.addEventListener("click", async () => {
+    el.textContent = "vérification…";
+    const info = await updCheck(false);
+    const v = await (await fetch("/api/version")).json();
+    el.textContent = `v${v.version} · ${v.build}${v.dirty ? "*" : ""}`;
+    if (info) updBtn.click();          // ouvre la modale, à jour ou non
+  });
+})();
