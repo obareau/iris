@@ -267,6 +267,22 @@ docker run -p 8800:8800 \
 Puis ouvrir <http://localhost:8800>. Dans Iris, indiquer `/photos` comme dossier
 source : c'est là qu'apparaît le dossier monté ci-dessus.
 
+Sous **Windows** (PowerShell), les chemins s'écrivent autrement :
+
+```powershell
+docker run -p 8800:8800 `
+  -v C:\Users\moi\Pictures:/photos `
+  -v iris-models:/root/.cache/huggingface `
+  -v iris-data:/app/data `
+  ghcr.io/obareau/iris
+```
+
+⚠️ **Où sont rangées les photos compte, sous Windows.** Un dossier situé sur
+`C:\` est lu par le conteneur à travers la frontière entre Windows et WSL2, ce
+qui est nettement plus lent que depuis le système de fichiers de WSL2 lui-même.
+Sur une grosse bibliothèque, copier les photos dans WSL2
+(`\\wsl$\Ubuntu\home\moi\photos`) change beaucoup la vitesse d'analyse.
+
 L'image pèse **~3,7 Go** et est publiée pour **amd64 et arm64** — `docker pull`
 choisit la bonne selon la machine.
 
@@ -279,7 +295,7 @@ conteneur.
 | Plateforme | État |
 |---|---|
 | **Linux x86** | natif |
-| **Windows** (Docker Desktop / WSL2) | natif |
+| **Windows** (Docker Desktop / WSL2) | natif — conteneur Linux via WSL2 |
 | **macOS Apple Silicon** | natif (image arm64) |
 | **macOS Intel** | natif |
 

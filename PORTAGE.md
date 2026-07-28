@@ -7,7 +7,7 @@ Cible visée : **PC récent, GPU AMD, Ubuntu**. Relevé du 2026-07-26.
 | | Docker | Installation native |
 |---|---|---|
 | Commande | `docker run … ghcr.io/obareau/iris` | `./setup.sh` |
-| Plateformes | Linux, Windows, macOS (amd64 et arm64) | Linux |
+| Plateformes | Linux, Windows (WSL2), macOS Intel et Apple Silicon | Linux |
 | GPU | **non** — processeur seulement | oui (NVIDIA, AMD/ROCm) |
 | Poids | ~3,7 Go | ~8 Go de venv + 10 Go de modèles |
 | Pour qui | essayer, montrer, dépanner | usage réel |
@@ -16,6 +16,11 @@ Cible visée : **PC récent, GPU AMD, Ubuntu**. Relevé du 2026-07-26.
 peut pas embarquer les trois roues PyTorch (CUDA, ROCm, CPU). Pour trier
 sérieusement des photos, c'est l'installation native qu'il faut. Le détail de la
 commande Docker est dans le [README](README.md#ou-sans-rien-installer-docker).
+
+⚠️ **Sous Windows, l'emplacement des photos pèse plus que le processeur.** Un
+dossier sur `C:\` traverse la frontière Windows/WSL2 à chaque fichier lu ;
+depuis le système de fichiers de WSL2, c'est nettement plus rapide. Sur une
+grosse bibliothèque, c'est le premier réglage à faire.
 
 ---
 
